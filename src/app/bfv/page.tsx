@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -44,6 +44,21 @@ type IcsGame = {
   isHome?: boolean | null; // true/false/unknown
 };
 
+type GameRow = IcsGame & {
+  bfvTeamId: string;
+  bfvTeamName: string;
+  bfvClubId: string;
+  bfvClubName: string;
+  bfvAgeU: number | null;
+  icsUrl: string;
+};
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+function toYMDLocal(d: Date) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 function fmtDateDE(d: Date) {
   return d.toLocaleDateString("de-DE");
 }
@@ -74,7 +89,6 @@ function parseIcs(icsText: string): IcsGame[] {
   let dtEnd: Date | null = null;
 
   const parseDt = (v: string) => {
-    // BFV liefert typischerweise UTC: 20260222T140000Z
     const m = v.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/);
     if (!m) return null;
     const [_, Y, Mo, D, H, Mi, S, z] = m;
@@ -200,6 +214,21 @@ function findBfvUid(note: string | null) {
   return m ? m[1] : null;
 }
 
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  let idx = 0;
+
+  const workers = Array.from({ length: Math.max(1, limit) }, async () => {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i]);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
 export default function BfvPage() {
   const enableBFV = String(process.env.NEXT_PUBLIC_ENABLE_BFV || "").toLowerCase() === "true";
 
@@ -216,12 +245,18 @@ export default function BfvPage() {
   const [selectedClubId, setSelectedClubId] = useState<string>("");
   const [selectedBfvTeamId, setSelectedBfvTeamId] = useState<string>("");
 
+  // ✅ Tagesplanung
+  const [dayPlanDate, setDayPlanDate] = useState<string>(""); // YYYY-MM-DD
+  const isDayPlanning = dayPlanDate.trim().length > 0;
+
+  const prevSingleSelection = useRef<{ clubId: string; teamId: string }>({ clubId: "", teamId: "" });
+
   const [homeOnly, setHomeOnly] = useState(true);
-  const [games, setGames] = useState<IcsGame[]>([]);
+  const [games, setGames] = useState<GameRow[]>([]);
   const [range, setRange] = useState<{ start: Date; end: Date } | null>(null);
 
   const [bookedMap, setBookedMap] = useState<Record<string, string>>({}); // uid -> bookingId
-  const [bookedPitchByUid, setBookedPitchByUid] = useState<Record<string, string>>({}); // uid -> pitchId
+  const [bookedPitchMap, setBookedPitchMap] = useState<Record<string, string>>({}); // uid -> pitchId
   const [selectedPitchByUid, setSelectedPitchByUid] = useState<Record<string, string>>({});
 
   const [error, setError] = useState<string | null>(null);
@@ -230,26 +265,8 @@ export default function BfvPage() {
 
   const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "ADMIN", [profile]);
 
-  const pitchNameById = useMemo(() => new Map(pitches.map((p) => [p.id, p.name])), [pitches]);
-
-  // UI sizing (Button ≈ Dropdown)
-  const CONTROL_H = 36;
-  const selectStyle: React.CSSProperties = {
-    minWidth: 280,
-    height: CONTROL_H,
-    padding: "0 10px",
-    borderRadius: 10,
-  };
-  const actionBtnStyle: React.CSSProperties = {
-    height: CONTROL_H,
-    padding: "0 12px",
-    borderRadius: 12,
-    fontWeight: 800,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    whiteSpace: "nowrap",
-  };
+  const clubsById = useMemo(() => new Map(clubs.map((c) => [c.id, c.name])), [clubs]);
+  const pitchesById = useMemo(() => new Map(pitches.map((p) => [p.id, p])), [pitches]);
 
   // ---------- Session/Profile ----------
   useEffect(() => {
@@ -304,67 +321,69 @@ export default function BfvPage() {
       setTeams((localTeamsRes.data ?? []) as Team[]);
 
       const firstClub = (clubsRes.data ?? [])[0] as BfvClub | undefined;
-      if (firstClub?.id) setSelectedClubId(firstClub.id);
+      if (firstClub?.id) {
+        setSelectedClubId(firstClub.id);
+        prevSingleSelection.current.clubId = firstClub.id;
+      }
     })();
   }, [sessionChecked]);
 
-  const selectedClub = useMemo(() => clubs.find((c) => c.id === selectedClubId) ?? null, [clubs, selectedClubId]);
+  const teamsForClub = useMemo(
+    () => bfvTeams.filter((t) => t.club_id === selectedClubId),
+    [bfvTeams, selectedClubId]
+  );
 
-  const teamsForClub = useMemo(() => bfvTeams.filter((t) => t.club_id === selectedClubId), [bfvTeams, selectedClubId]);
+  const selectedClub = useMemo(() => clubs.find((c) => c.id === selectedClubId) ?? null, [clubs, selectedClubId]);
 
   const selectedBfvTeam = useMemo(
     () => teamsForClub.find((t) => t.id === selectedBfvTeamId) ?? null,
     [teamsForClub, selectedBfvTeamId]
   );
 
-  // wenn Verein wechselt: erste Mannschaft auswählen
+  // Wenn Verein wechselt: erste Mannschaft auswählen (nur in Einzelplanung)
   useEffect(() => {
     if (!selectedClubId) return;
+    if (isDayPlanning) return;
+
     const first = teamsForClub[0];
-    if (first?.id) setSelectedBfvTeamId(first.id);
+    if (first?.id) {
+      setSelectedBfvTeamId(first.id);
+      prevSingleSelection.current = { clubId: selectedClubId, teamId: first.id };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClubId, teamsForClub]);
 
-  // homeOnly default aus bfv_teams übernehmen
+  // homeOnly default aus bfv_teams übernehmen (nur in Einzelplanung)
   useEffect(() => {
+    if (isDayPlanning) return;
     if (!selectedBfvTeam) return;
     if (typeof selectedBfvTeam.home_only === "boolean") setHomeOnly(selectedBfvTeam.home_only);
-  }, [selectedBfvTeam?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBfvTeam?.id, isDayPlanning]);
 
-  // ---------- Availability ----------
+  // ---------- Tagesplanung: Dropdowns leer anzeigen ----------
+  useEffect(() => {
+    if (!sessionChecked) return;
+
+    if (isDayPlanning) {
+      // Merken, was vorher selektiert war, und dann "leer" machen
+      if (selectedClubId || selectedBfvTeamId) {
+        prevSingleSelection.current = { clubId: selectedClubId, teamId: selectedBfvTeamId };
+      }
+      setSelectedClubId("");
+      setSelectedBfvTeamId("");
+    } else {
+      // Restore
+      const prev = prevSingleSelection.current;
+      if (prev.clubId) setSelectedClubId(prev.clubId);
+      if (prev.teamId) setSelectedBfvTeamId(prev.teamId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDayPlanning]);
+
+  // ---------- Bookings fetch + bookedMap rebuild ----------
   const BLOCKING_STATUSES = useMemo(() => new Set(["REQUESTED", "APPROVED"]), []);
 
-  function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
-    return aStart < bEnd && bStart < aEnd;
-  }
-
-  function allowedPitchesForAge(ageU: number | null) {
-    // ab U14: nur Großfeld Mitte+Rechts
-    if (ageU != null && ageU >= 14) {
-      return pitches.filter((p) => {
-        const n = (p.name || "").toLowerCase();
-        return p.type === "GROSSFELD" && (n.includes("mitte") || n.includes("rechts"));
-      });
-    }
-    return pitches; // U7-U13 -> alle
-  }
-
-  function getAvailablePitches(game: IcsGame, bookingsList: Booking[] = bookings) {
-    const candidates = allowedPitchesForAge(selectedBfvTeam?.age_u ?? null);
-    const gStart = game.start;
-    const gEnd = game.end;
-
-    const blockingBookings = bookingsList.filter((b) => BLOCKING_STATUSES.has(String(b.status || "").toUpperCase()));
-
-    return candidates.filter((p) => {
-      const collision = blockingBookings.some((b) => {
-        if (b.pitch_id !== p.id) return false;
-        return overlaps(gStart, gEnd, new Date(b.start_at), new Date(b.end_at));
-      });
-      return !collision;
-    });
-  }
-
-  // ---------- Bookings fetch + maps ----------
   async function loadBookingsForRange(rangeStart: Date, rangeEnd: Date) {
     const startISO = rangeStart.toISOString();
     const endISO = rangeEnd.toISOString();
@@ -380,117 +399,246 @@ export default function BfvPage() {
     const list = (data ?? []) as Booking[];
     setBookings(list);
 
-    const uidToBookingId: Record<string, string> = {};
-    const uidToPitchId: Record<string, string> = {};
+    const map: Record<string, string> = {};
+    const pitchMap: Record<string, string> = {};
+
     for (const b of list) {
       const uid = findBfvUid(b.note);
       if (!uid) continue;
-      uidToBookingId[uid] = b.id;
-      uidToPitchId[uid] = b.pitch_id;
-    }
-    setBookedMap(uidToBookingId);
-    setBookedPitchByUid(uidToPitchId);
 
-    return { list, uidToBookingId, uidToPitchId };
+      const st = String(b.status || "").toUpperCase();
+      // Nur REQUESTED/APPROVED als "gebucht" zählen
+      if (!BLOCKING_STATUSES.has(st)) continue;
+
+      map[uid] = b.id;
+      pitchMap[uid] = b.pitch_id;
+    }
+
+    setBookedMap(map);
+    setBookedPitchMap(pitchMap);
+
+    return list;
   }
 
   // ---------- Local team mapping ----------
-  function resolveLocalTeamId() {
-    const targetAge = selectedBfvTeam?.age_u ?? null;
+  function resolveLocalTeamIdFor(bfvTeam: { age_u: number | null; name: string }) {
+    const targetAge = bfvTeam.age_u ?? null;
 
     if (targetAge != null) {
       const best = teams.find((t) => t.age_u === targetAge);
       if (best?.id) return best.id;
     }
 
-    const bfvName = (selectedBfvTeam?.name || "").toLowerCase();
+    const bfvName = (bfvTeam.name || "").toLowerCase();
     const byName = teams.find((t) => (t.name || "").toLowerCase().includes(bfvName));
     return byName?.id ?? null;
   }
 
-  // ---------- Load games ----------
-  async function loadGames() {
-    if (!selectedBfvTeam?.id) return;
+  // ---------- Availability ----------
+  function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
+    return aStart < bEnd && bStart < aEnd;
+  }
 
+  function allowedPitchesForAge(ageU: number | null) {
+    // Regel: ab U14 nur Großfeld Mitte+Rechts; U7-U13 alle
+    if (ageU != null && ageU >= 14) {
+      return pitches.filter((p) => {
+        const n = (p.name || "").toLowerCase();
+        return p.type === "GROSSFELD" && (n.includes("mitte") || n.includes("rechts"));
+      });
+    }
+    return pitches;
+  }
+
+  function getAvailablePitches(game: GameRow) {
+    const candidates = allowedPitchesForAge(game.bfvAgeU);
+
+    const gStart = game.start;
+    const gEnd = game.end;
+
+    const blockingBookings = bookings.filter((b) => BLOCKING_STATUSES.has(String(b.status || "").toUpperCase()));
+
+    return candidates.filter((p) => {
+      const collision = blockingBookings.some((b) => {
+        if (b.pitch_id !== p.id) return false;
+        return overlaps(gStart, gEnd, new Date(b.start_at), new Date(b.end_at));
+      });
+      return !collision;
+    });
+  }
+
+  // ---------- Home/Away marker ----------
+  function addHomeInfo(rawGames: IcsGame[], clubName: string, teamName: string) {
+    const tokens = buildMatchTokens(clubName, teamName);
+
+    return rawGames.map((g) => {
+      const parts = splitHomeAway(g.summary);
+      const locNorm = normalizeForMatch(g.location || "");
+
+      const matchSide = (s: string) => {
+        const norm = normalizeForMatch(s);
+        return tokens.length ? tokens.some((t) => norm.includes(t)) : false;
+      };
+
+      let isHome: boolean | null = null;
+
+      if (parts) {
+        const leftMatch = matchSide(parts.left);
+        const rightMatch = matchSide(parts.right);
+
+        if (leftMatch && !rightMatch) isHome = true;
+        else if (rightMatch && !leftMatch) isHome = false;
+        else if (leftMatch && rightMatch) isHome = true;
+        else isHome = null;
+      } else {
+        if (tokens.length && tokens.some((t) => locNorm.includes(t))) isHome = true;
+        else isHome = null;
+      }
+
+      return { ...g, isHome };
+    });
+  }
+
+  // ---------- Load games (single) ----------
+  async function loadGamesSingle(team: BfvTeam, clubName: string) {
+    const url = team.ics_url;
+    if (!url) throw new Error("Für diese Mannschaft ist kein ICS-Link hinterlegt.");
+
+    const res = await fetch(`/api/bfv/ics?url=${encodeURIComponent(url)}`, { cache: "no-store" });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`ICS fetch failed (${res.status}): ${txt || "—"}`);
+    }
+
+    const icsText = await res.text();
+    let parsed = parseIcs(icsText);
+    parsed = addHomeInfo(parsed, clubName, team.name);
+
+    // Filter (nur Heimspiele): unknown bleibt drin
+    const filtered = homeOnly ? parsed.filter((g) => g.isHome !== false) : parsed;
+
+    const rows: GameRow[] = filtered.map((g) => ({
+      ...g,
+      bfvTeamId: team.id,
+      bfvTeamName: team.name,
+      bfvClubId: team.club_id,
+      bfvClubName: clubName,
+      bfvAgeU: team.age_u ?? null,
+      icsUrl: url,
+    }));
+
+    // Range bestimmen
+    let min = rows[0]?.start;
+    let max = rows[0]?.end;
+    for (const g of rows) {
+      if (!min || g.start < min) min = g.start;
+      if (!max || g.end > max) max = g.end;
+    }
+    const rangeStart = min ? new Date(min) : new Date();
+    const rangeEnd = max ? new Date(max) : new Date(new Date().getTime() + 1000 * 60 * 60 * 24 * 30);
+    setRange({ start: rangeStart, end: rangeEnd });
+
+    await loadBookingsForRange(rangeStart, rangeEnd);
+
+    // Defaults: gebucht -> gebuchter Platz, sonst erster freier
+    const defaults: Record<string, string> = {};
+    for (const g of rows) {
+      const bookedPitch = bookedPitchMap[g.uid];
+      if (bookedPitch) {
+        defaults[g.uid] = bookedPitch;
+      } else {
+        const avail = getAvailablePitches(g);
+        if (avail[0]) defaults[g.uid] = avail[0].id;
+      }
+    }
+    setSelectedPitchByUid(defaults);
+
+    // Sort by start
+    rows.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+    setGames(rows);
+  }
+
+  // ---------- Load games (day planning) ----------
+  async function loadGamesDay(dayStr: string) {
+    const teamsWithIcs = bfvTeams.filter((t) => !!t.ics_url);
+
+    if (teamsWithIcs.length === 0) {
+      setGames([]);
+      throw new Error("Es gibt keine Mannschaften mit ICS-Link (bfv_teams.ics_url).");
+    }
+
+    const startDayLocal = new Date(`${dayStr}T00:00:00`);
+    const endDayLocal = new Date(startDayLocal);
+    endDayLocal.setDate(endDayLocal.getDate() + 1);
+
+    setRange({ start: startDayLocal, end: endDayLocal });
+
+    // Bookings des Tages laden (damit Verfügbarkeiten & bookedMap stimmen)
+    await loadBookingsForRange(startDayLocal, endDayLocal);
+
+    const results = await mapLimit(teamsWithIcs, 4, async (t) => {
+      const clubName = clubsById.get(t.club_id) ?? t.club_id;
+      const url = t.ics_url!;
+      const res = await fetch(`/api/bfv/ics?url=${encodeURIComponent(url)}`, { cache: "no-store" });
+      if (!res.ok) return [] as GameRow[];
+
+      const icsText = await res.text().catch(() => "");
+      let parsed = parseIcs(icsText);
+      parsed = addHomeInfo(parsed, clubName, t.name);
+
+      const filteredHome = homeOnly ? parsed.filter((g) => g.isHome !== false) : parsed;
+      const dayGames = filteredHome.filter((g) => toYMDLocal(g.start) === dayStr);
+
+      return dayGames.map((g) => ({
+        ...g,
+        bfvTeamId: t.id,
+        bfvTeamName: t.name,
+        bfvClubId: t.club_id,
+        bfvClubName: clubName,
+        bfvAgeU: t.age_u ?? null,
+        icsUrl: url,
+      }));
+    });
+
+    const rows = results.flat();
+
+    // Defaults: gebucht -> gebuchter Platz, sonst erster freier
+    const defaults: Record<string, string> = {};
+    for (const g of rows) {
+      const bookedPitch = bookedPitchMap[g.uid];
+      if (bookedPitch) {
+        defaults[g.uid] = bookedPitch;
+      } else {
+        const avail = getAvailablePitches(g);
+        if (avail[0]) defaults[g.uid] = avail[0].id;
+      }
+    }
+    setSelectedPitchByUid(defaults);
+
+    rows.sort((a, b) => {
+      const t = a.start.getTime() - b.start.getTime();
+      if (t !== 0) return t;
+      const c = a.bfvClubName.localeCompare(b.bfvClubName);
+      if (c !== 0) return c;
+      return a.bfvTeamName.localeCompare(b.bfvTeamName);
+    });
+
+    setGames(rows);
+  }
+
+  // ---------- Main load ----------
+  async function loadGames() {
     setLoadingGames(true);
     setError(null);
 
     try {
-      const url = selectedBfvTeam?.ics_url;
-      if (!url) throw new Error("Für diese Mannschaft ist kein ICS-Link hinterlegt.");
-
-      const res = await fetch(`/api/bfv/ics?url=${encodeURIComponent(url)}`, { cache: "no-store" });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`ICS fetch failed (${res.status}): ${txt || "—"}`);
+      if (isDayPlanning) {
+        await loadGamesDay(dayPlanDate);
+      } else {
+        if (!selectedBfvTeam?.id || !selectedClub?.id) return;
+        await loadGamesSingle(selectedBfvTeam, selectedClub.name);
       }
-
-      const icsText = await res.text();
-      let parsed = parseIcs(icsText);
-
-      // Heim/Auswärts robust bestimmen
-      const clubName = selectedClub?.name ?? "";
-      const teamName = selectedBfvTeam?.name ?? "";
-      const tokens = buildMatchTokens(clubName, teamName);
-
-      parsed = parsed.map((g) => {
-        const parts = splitHomeAway(g.summary);
-        const locNorm = normalizeForMatch(g.location || "");
-        const matchSide = (s: string) => {
-          const norm = normalizeForMatch(s);
-          return tokens.length ? tokens.some((t) => norm.includes(t)) : false;
-        };
-
-        let isHome: boolean | null = null;
-
-        if (parts) {
-          const leftMatch = matchSide(parts.left);
-          const rightMatch = matchSide(parts.right);
-
-          if (leftMatch && !rightMatch) isHome = true;
-          else if (rightMatch && !leftMatch) isHome = false;
-          else if (leftMatch && rightMatch) isHome = true;
-          else isHome = null;
-        } else {
-          if (tokens.length && tokens.some((t) => locNorm.includes(t))) isHome = true;
-          else isHome = null;
-        }
-
-        return { ...g, isHome };
-      });
-
-      const filtered = homeOnly ? parsed.filter((g) => g.isHome !== false) : parsed;
-
-      // Range bestimmen
-      let min = filtered[0]?.start;
-      let max = filtered[0]?.end;
-      for (const g of filtered) {
-        if (!min || g.start < min) min = g.start;
-        if (!max || g.end > max) max = g.end;
-      }
-
-      const rangeStart = min ? new Date(min) : new Date();
-      const rangeEnd = max ? new Date(max) : new Date(new Date().getTime() + 1000 * 60 * 60 * 24 * 30);
-      setRange({ start: rangeStart, end: rangeEnd });
-
-      const { list: bookingList, uidToPitchId } = await loadBookingsForRange(rangeStart, rangeEnd);
-
-      // Default pitch selection:
-      // - wenn schon gebucht: den gebuchten Platz setzen
-      // - sonst: ersten freien Platz setzen
-      const defaults: Record<string, string> = {};
-      for (const g of filtered) {
-        const bookedPitch = uidToPitchId[g.uid];
-        if (bookedPitch) {
-          defaults[g.uid] = bookedPitch;
-          continue;
-        }
-        const avail = getAvailablePitches(g, bookingList);
-        if (avail[0]) defaults[g.uid] = avail[0].id;
-      }
-      setSelectedPitchByUid((prev) => ({ ...prev, ...defaults }));
-
-      setGames(filtered);
     } catch (e: any) {
       console.error(e);
       setGames([]);
@@ -500,18 +648,27 @@ export default function BfvPage() {
     }
   }
 
+  // Auto-reload on selection changes
   useEffect(() => {
     if (!sessionChecked) return;
     if (!enableBFV) return;
     if (!isAdmin) return;
-    if (!selectedBfvTeam?.id) return;
 
+    // Tagesplanung aktiv
+    if (isDayPlanning) {
+      if (!dayPlanDate) return;
+      loadGames();
+      return;
+    }
+
+    // Einzelplanung
+    if (!selectedBfvTeam?.id) return;
     loadGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionChecked, enableBFV, isAdmin, selectedBfvTeam?.id, homeOnly]);
+  }, [sessionChecked, enableBFV, isAdmin, selectedBfvTeam?.id, homeOnly, isDayPlanning, dayPlanDate]);
 
   // ---------- Book / Undo ----------
-  async function bookApproved(game: IcsGame, pitchId: string) {
+  async function bookApproved(game: GameRow, pitchId: string) {
     setBusyUid(game.uid);
     setError(null);
 
@@ -520,12 +677,14 @@ export default function BfvPage() {
       const uid = data.session?.user?.id;
       if (!uid) throw new Error("Session fehlt – bitte neu einloggen.");
 
-      const localTeamId = resolveLocalTeamId();
+      const localTeamId = resolveLocalTeamIdFor({ age_u: game.bfvAgeU, name: game.bfvTeamName });
       if (!localTeamId) {
-        throw new Error("Konnte keine passende lokale Mannschaft (teams) finden. Bitte 'teams' prüfen.");
+        throw new Error(
+          `Konnte keine passende lokale Mannschaft (teams) finden (für ${game.bfvTeamName}). Bitte Jahrgang/Name in 'teams' prüfen.`
+        );
       }
 
-      const note = `[BFV] ${game.summary}\n[BFV_UID:${game.uid}]`;
+      const note = `[BFV] ${game.bfvClubName} – ${game.bfvTeamName}\n${game.summary}\n[BFV_TEAM_ID:${game.bfvTeamId}]\n[BFV_UID:${game.uid}]`;
 
       const { data: ins, error: insErr } = await supabase
         .from("bookings")
@@ -538,21 +697,18 @@ export default function BfvPage() {
           team_id: localTeamId,
           created_by: uid,
         })
-        .select("id")
+        .select("id,pitch_id")
         .maybeSingle();
 
       if (insErr) throw insErr;
 
-      // Nach dem Insert:
-      // - maps neu laden, damit "grün" auch nach Reload bleibt
+      // Reload bookings/map (damit Zustand auch nach reload stimmt)
       if (range) await loadBookingsForRange(range.start, range.end);
-
-      // Pitch-Auswahl auf den gebuchten Pitch setzen (UI logisch)
-      setSelectedPitchByUid((m) => ({ ...m, [game.uid]: pitchId }));
 
       if (ins?.id) {
         setBookedMap((m) => ({ ...m, [game.uid]: ins.id }));
-        setBookedPitchByUid((m) => ({ ...m, [game.uid]: pitchId }));
+        setBookedPitchMap((m) => ({ ...m, [game.uid]: pitchId }));
+        setSelectedPitchByUid((m) => ({ ...m, [game.uid]: pitchId }));
       }
     } catch (e: any) {
       console.error(e);
@@ -573,24 +729,14 @@ export default function BfvPage() {
       const { error } = await supabase.from("bookings").delete().eq("id", bookingId);
       if (error) throw error;
 
-      // reload bookings/maps
-      if (range) {
-        const { list: bookingList } = await loadBookingsForRange(range.start, range.end);
-
-        // nach Undo: wieder einen sinnvollen Default-Pitch setzen
-        const g = games.find((x) => x.uid === gameUid);
-        if (g) {
-          const avail = getAvailablePitches(g, bookingList);
-          setSelectedPitchByUid((m) => ({ ...m, [gameUid]: avail[0]?.id ?? "" }));
-        }
-      }
+      if (range) await loadBookingsForRange(range.start, range.end);
 
       setBookedMap((m) => {
         const copy = { ...m };
         delete copy[gameUid];
         return copy;
       });
-      setBookedPitchByUid((m) => {
+      setBookedPitchMap((m) => {
         const copy = { ...m };
         delete copy[gameUid];
         return copy;
@@ -639,8 +785,8 @@ export default function BfvPage() {
     );
   }
 
-  const clubName = selectedClub?.name ?? "—";
-  const icsUrl = selectedBfvTeam?.ics_url ?? null;
+  // Anzeige-Infos
+  const singleIcsUrl = selectedBfvTeam?.ics_url ?? null;
 
   return (
     <div style={{ maxWidth: 1200, margin: "24px auto", padding: 16 }}>
@@ -650,7 +796,9 @@ export default function BfvPage() {
       >
         <div>
           <div style={{ fontSize: 22, fontWeight: 900 }}>Ligaspiele planen (BFV)</div>
-          <div style={{ opacity: 0.85, marginTop: 4 }}>{clubName} • iCal Import</div>
+          <div style={{ opacity: 0.85, marginTop: 4 }}>
+            {isDayPlanning ? `Tagesplanung: ${dayPlanDate}` : "Einzelplanung"}
+          </div>
         </div>
         <Link
           href="/calendar"
@@ -661,16 +809,19 @@ export default function BfvPage() {
       </div>
 
       <div className="card" style={{ marginTop: 12, padding: 16 }}>
-        {error && (
-          <div style={{ color: "crimson", marginBottom: 10, fontWeight: 600 }}>
-            {error}
-          </div>
-        )}
+        {error && <div style={{ color: "crimson", marginBottom: 10, fontWeight: 600 }}>{error}</div>}
 
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "end" }}>
+          {/* Verein */}
           <div style={{ minWidth: 320 }}>
             <div style={{ opacity: 0.8, fontSize: 13, marginBottom: 6 }}>Verein:</div>
-            <select value={selectedClubId} onChange={(e) => setSelectedClubId(e.target.value)} style={{ width: "100%" }}>
+            <select
+              value={isDayPlanning ? "" : selectedClubId}
+              onChange={(e) => setSelectedClubId(e.target.value)}
+              style={{ width: "100%" }}
+              disabled={isDayPlanning}
+            >
+              <option value="">{isDayPlanning ? "—" : "Bitte wählen"}</option>
               {clubs.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -679,13 +830,16 @@ export default function BfvPage() {
             </select>
           </div>
 
+          {/* Mannschaft */}
           <div style={{ minWidth: 360 }}>
             <div style={{ opacity: 0.8, fontSize: 13, marginBottom: 6 }}>Mannschaft:</div>
             <select
-              value={selectedBfvTeamId}
+              value={isDayPlanning ? "" : selectedBfvTeamId}
               onChange={(e) => setSelectedBfvTeamId(e.target.value)}
               style={{ width: "100%" }}
+              disabled={isDayPlanning}
             >
+              <option value="">{isDayPlanning ? "—" : "Bitte wählen"}</option>
               {teamsForClub.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -695,6 +849,17 @@ export default function BfvPage() {
             </select>
           </div>
 
+          {/* ✅ Tagesplanung */}
+          <div style={{ minWidth: 220 }}>
+            <div style={{ opacity: 0.8, fontSize: 13, marginBottom: 6 }}>Tagesplanung:</div>
+            <input
+              type="date"
+              value={dayPlanDate}
+              onChange={(e) => setDayPlanDate(e.target.value)}
+              style={{ width: "100%" }}
+            />
+          </div>
+
           <label style={{ display: "flex", gap: 10, alignItems: "center", paddingBottom: 6 }}>
             <input type="checkbox" checked={homeOnly} onChange={(e) => setHomeOnly(e.target.checked)} />
             nur Heimspiele
@@ -702,17 +867,22 @@ export default function BfvPage() {
 
           <button
             onClick={loadGames}
-            disabled={loadingGames || !selectedBfvTeamId}
-            style={{ ...actionBtnStyle, padding: "0 14px" }}
+            disabled={loadingGames || (isDayPlanning ? !dayPlanDate : !selectedBfvTeamId)}
+            style={{ padding: "10px 14px", borderRadius: 12 }}
           >
             {loadingGames ? "Lade…" : "Aktualisieren"}
           </button>
 
           <div style={{ flex: 1, minWidth: 260, opacity: 0.8, fontSize: 13 }}>
-            {icsUrl ? (
+            {isDayPlanning ? (
+              <>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Hinweis:</div>
+                <div>Es werden alle Mannschaften mit gepflegtem ICS-Link geprüft.</div>
+              </>
+            ) : singleIcsUrl ? (
               <>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>ICS:</div>
-                <div style={{ wordBreak: "break-all" }}>{icsUrl}</div>
+                <div style={{ wordBreak: "break-all" }}>{singleIcsUrl}</div>
               </>
             ) : (
               <div style={{ color: "crimson", fontWeight: 700 }}>Für diese Mannschaft ist kein ICS-Link hinterlegt.</div>
@@ -727,61 +897,80 @@ export default function BfvPage() {
             <thead>
               <tr style={{ textAlign: "left" }}>
                 <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Datum</th>
+                {isDayPlanning && (
+                  <>
+                    <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Verein</th>
+                    <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Mannschaft</th>
+                  </>
+                )}
                 <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Spiel</th>
                 <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Heim?</th>
                 <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Von</th>
                 <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Bis</th>
                 <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Freie Plätze</th>
-                <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Aktion</th>
+                <th style={{ padding: 10, borderBottom: "1px solid #273243", minWidth: 220 }}>Aktion</th>
               </tr>
             </thead>
-
             <tbody>
               {games.map((g) => {
-                const bookingId = bookedMap[g.uid];
-                const isBooked = !!bookingId;
+                const isBooked = !!bookedMap[g.uid];
                 const busy = busyUid === g.uid;
 
-                const bookedPitchId = bookedPitchByUid[g.uid];
-                const bookedPitchName = bookedPitchId ? pitchNameById.get(bookedPitchId) ?? bookedPitchId : null;
-
                 const avail = getAvailablePitches(g);
-                const selectedPitch = selectedPitchByUid[g.uid] || (avail[0]?.id ?? "");
+                const selectedPitch = selectedPitchByUid[g.uid] || "";
+
+                const bookedPitchId = bookedPitchMap[g.uid] || "";
+                const bookedPitchName = bookedPitchId ? (pitchesById.get(bookedPitchId)?.name ?? bookedPitchId) : "";
 
                 return (
-                  <tr key={g.uid}>
+                  <tr key={`${g.bfvTeamId}:${g.uid}`}>
                     <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>
                       {fmtDateDE(g.start)}
                     </td>
+
+                    {isDayPlanning && (
+                      <>
+                        <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                          {g.bfvClubName}
+                        </td>
+                        <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                          {g.bfvTeamName}
+                          {g.bfvAgeU ? ` (U${g.bfvAgeU})` : ""}
+                        </td>
+                      </>
+                    )}
+
                     <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{g.summary}</td>
+
                     <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                       {g.isHome === true ? "Ja" : g.isHome === false ? "Nein" : "?"}
                     </td>
+
                     <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>
                       {fmtTimeDE(g.start)}
                     </td>
+
                     <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>
                       {fmtTimeDE(g.end)}
                     </td>
 
-                    {/* ✅ Platz-Spalte: gebucht => gebuchten Platz grün anzeigen */}
-                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap", minWidth: 220 }}>
                       {isBooked ? (
                         <div
                           style={{
-                            height: CONTROL_H,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            padding: "0 12px",
-                            borderRadius: 12,
-                            border: "1px solid rgba(255,255,255,0.18)",
-                            background: "rgba(40, 160, 80, 0.25)",
-                            fontWeight: 800,
                             minWidth: 280,
+                            height: 40,
+                            padding: "0 12px",
+                            borderRadius: 10,
+                            border: "1px solid rgba(255,255,255,0.18)",
+                            background: "rgba(40, 160, 80, 0.20)",
+                            fontWeight: 800,
+                            fontSize: 13,
+                            display: "flex",
+                            alignItems: "center",
                           }}
-                          title={bookedPitchName ?? ""}
                         >
-                          {bookedPitchName ?? "Platz gebucht"}
+                          {bookedPitchName || "Gebucht"}
                         </div>
                       ) : avail.length === 0 ? (
                         <span style={{ color: "crimson", fontWeight: 700 }}>keine</span>
@@ -789,7 +978,7 @@ export default function BfvPage() {
                         <select
                           value={selectedPitch}
                           onChange={(e) => setSelectedPitchByUid((m) => ({ ...m, [g.uid]: e.target.value }))}
-                          style={selectStyle}
+                          style={{ minWidth: 280 }}
                         >
                           {avail.map((p) => (
                             <option key={p.id} value={p.id}>
@@ -800,14 +989,22 @@ export default function BfvPage() {
                       )}
                     </td>
 
-                    {/* ✅ Button-Höhe reduziert */}
                     <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                       {isBooked ? (
                         <button
                           disabled={busy}
                           onClick={() => undoBooking(g.uid)}
                           style={{
-                            ...actionBtnStyle,
+                            height: 40,
+                            minWidth: 190,
+                            padding: "0 12px",
+                            borderRadius: 10,
+                            fontWeight: 800,
+                            fontSize: 13,
+                            whiteSpace: "nowrap",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                             cursor: busy ? "not-allowed" : "pointer",
                             border: "1px solid rgba(255,255,255,0.18)",
                             background: "rgba(40, 160, 80, 0.25)",
@@ -819,7 +1016,18 @@ export default function BfvPage() {
                         <button
                           disabled={busy || avail.length === 0 || !selectedPitch}
                           onClick={() => bookApproved(g, selectedPitch)}
-                          style={actionBtnStyle}
+                          style={{
+                            height: 40,
+                            minWidth: 190,
+                            padding: "0 12px",
+                            borderRadius: 10,
+                            fontWeight: 800,
+                            fontSize: 13,
+                            whiteSpace: "nowrap",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
                         >
                           direkt genehmigt anlegen
                         </button>
@@ -831,7 +1039,7 @@ export default function BfvPage() {
 
               {games.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 14, opacity: 0.8 }}>
+                  <td colSpan={isDayPlanning ? 9 : 7} style={{ padding: 14, opacity: 0.8 }}>
                     Keine Spiele gefunden.
                   </td>
                 </tr>
@@ -841,8 +1049,9 @@ export default function BfvPage() {
         </div>
 
         <div style={{ marginTop: 10, opacity: 0.75, fontSize: 13 }}>
-          Hinweis: Wenn ein Spiel kollidiert, kommt ein Overlap-Fehler – dann Zeit/Platz anpassen. (Wenn REJECTED/CANCELLED Buchungen trotzdem blocken,
-          braucht es zusätzlich den DB-Fix an der Exclusion-Constraint.)
+          Hinweis: Wenn ein Spiel kollidiert, kommt ggf. ein Overlap-Fehler. In der UI blocken nur REQUESTED/APPROVED –
+          wenn deine DB-Exclusion-Constraint aber noch REJECTED/CANCELLED blockt, musst du die Constraint in Supabase
+          entsprechend anpassen.
         </div>
       </div>
     </div>

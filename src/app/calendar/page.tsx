@@ -43,9 +43,7 @@ function roundToStep(date: Date, stepMinutes: number) {
 
 function toLocalInputValue(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-    d.getMinutes()
-  )}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function toYMD(d: Date) {
@@ -67,100 +65,66 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-/**
- * Kompaktes MultiSelect-Menü (nur Deutsch, keine doppelten Labels).
- * - defaultSelected: was bei "Default" gesetzt wird
- * - selected = [] kann (je nach use-case) "Alle" bedeuten
- */
-function MultiSelectMenu({
+/** Kleine UI-Hilfe: Checkbox-Dropdown */
+function MultiSelectDropdown<T extends string>({
   label,
   options,
   selected,
-  onChange,
-  placeholder,
+  setSelected,
   defaultSelected,
-  emptyMeansAll = true,
+  allSelected,
 }: {
   label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  onChange: (next: string[]) => void;
-  placeholder?: string;
-  defaultSelected?: string[];
-  emptyMeansAll?: boolean;
+  options: { value: T; label: string }[];
+  selected: T[];
+  setSelected: (v: T[]) => void;
+  defaultSelected: T[];
+  allSelected: T[];
 }) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
 
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-
-  // Close on outside click / ESC
   useEffect(() => {
-    if (!open) return;
-
-    function onDown(e: MouseEvent) {
-      const t = e.target as HTMLElement | null;
-      if (!t) return;
-      const container = t.closest?.("[data-ms-container]");
-      if (!container) setOpen(false);
+    function onDocClick(e: MouseEvent) {
+      const el = ref.current;
+      if (!el) return;
+      if (!el.contains(e.target as Node)) setOpen(false);
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  function toggle(v: string) {
-    const next = new Set(selectedSet);
-    if (next.has(v)) next.delete(v);
-    else next.add(v);
-    onChange(Array.from(next));
-  }
-
-  function setDefault() {
-    onChange(defaultSelected ?? []);
-  }
-
-  function setAll() {
-    onChange(options.map((o) => o.value));
-  }
-
-  // Button summary
   const summary =
-    selected.length === 0 && emptyMeansAll
-      ? `${label}: Alle`
+    selected.length === allSelected.length
+      ? "Alle"
       : selected.length === 0
-      ? (placeholder ?? `${label}: —`)
-      : `${label} (${selected.length}): ${options
-          .filter((o) => selectedSet.has(o.value))
-          .map((o) => o.label)
-          .join(", ")}`;
+        ? "Keine"
+        : options
+            .filter((o) => selected.includes(o.value))
+            .map((o) => o.label)
+            .join(", ");
 
   return (
-    <div data-ms-container style={{ position: "relative", minWidth: 260 }}>
+    <div ref={ref} style={{ position: "relative", minWidth: 260 }}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen((s) => !s)}
         style={{
           width: "100%",
           textAlign: "left",
-          padding: "8px 10px",
-          borderRadius: 10,
+          padding: "10px 12px",
+          borderRadius: 12,
           border: "1px solid #273243",
           background: "rgba(255,255,255,0.03)",
-          color: "inherit",
           cursor: "pointer",
-          fontSize: 13,
-          lineHeight: 1.2,
         }}
       >
-        {summary}
-        <span style={{ float: "right", opacity: 0.8 }}>{open ? "▲" : "▼"}</span>
+        <div style={{ fontWeight: 700 }}>
+          {label} ({selected.length})
+        </div>
+        <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {summary}
+        </div>
       </button>
 
       {open && (
@@ -169,60 +133,34 @@ function MultiSelectMenu({
             position: "absolute",
             top: "calc(100% + 8px)",
             left: 0,
-            zIndex: 50,
-            width: 340, // kompakter
-            maxWidth: "90vw",
+            zIndex: 1000,
+            width: "100%",
             background: "rgba(15, 22, 32, 0.98)",
-            border: "1px solid rgba(255,255,255,0.16)",
+            border: "1px solid rgba(255,255,255,0.18)",
             borderRadius: 12,
-            padding: 8, // kompakter
-            boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+            padding: 10,
+            boxShadow: "0 14px 40px rgba(0,0,0,0.4)",
           }}
         >
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <button
               type="button"
-              onClick={setDefault}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.16)",
-                background: "transparent",
-                color: "inherit",
-                cursor: "pointer",
-                fontSize: 13,
-              }}
+              onClick={() => setSelected(defaultSelected)}
+              style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid #273243", cursor: "pointer" }}
             >
               Default
             </button>
             <button
               type="button"
-              onClick={setAll}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.16)",
-                background: "transparent",
-                color: "inherit",
-                cursor: "pointer",
-                fontSize: 13,
-              }}
+              onClick={() => setSelected(allSelected)}
+              style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid #273243", cursor: "pointer" }}
             >
               Alle
             </button>
-            <div style={{ flex: 1 }} />
             <button
               type="button"
               onClick={() => setOpen(false)}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.16)",
-                background: "transparent",
-                color: "inherit",
-                cursor: "pointer",
-                fontSize: 13,
-              }}
+              style={{ marginLeft: "auto", padding: "8px 10px", borderRadius: 10, border: "1px solid #273243", cursor: "pointer" }}
             >
               Schließen
             </button>
@@ -230,31 +168,32 @@ function MultiSelectMenu({
 
           <div style={{ display: "grid", gap: 8 }}>
             {options.map((o) => {
-              const checked = selectedSet.has(o.value);
+              const checked = selected.includes(o.value);
               return (
                 <label
                   key={o.value}
                   style={{
                     display: "flex",
-                    alignItems: "center",
                     gap: 10,
-                    padding: "8px 10px",
-                    borderRadius: 12,
-                    border: "1px solid rgba(255,255,255,0.10)",
-                    background: checked ? "rgba(255,255,255,0.06)" : "transparent",
+                    alignItems: "center",
+                    padding: "10px 10px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
                     cursor: "pointer",
                     userSelect: "none",
-                    fontSize: 14,
                   }}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={() => toggle(o.value)}
-                    style={{ width: 16, height: 16 }}
+                    onChange={() => {
+                      setSelected(
+                        checked ? selected.filter((x) => x !== o.value) : [...selected, o.value]
+                      );
+                    }}
+                    style={{ width: 18, height: 18 }}
                   />
-                  {/* nur Deutsch */}
-                  <span style={{ fontWeight: 700 }}>{o.label}</span>
+                  <div style={{ fontWeight: 700 }}>{o.label}</div>
                 </label>
               );
             })}
@@ -265,15 +204,9 @@ function MultiSelectMenu({
   );
 }
 
-function statusLabelDE(status: string) {
-  const s = String(status || "").toUpperCase();
-  if (s === "REQUESTED") return "Angefragt";
-  if (s === "APPROVED") return "Genehmigt";
-  if (s === "REJECTED") return "Abgelehnt";
-  return s;
-}
-
 export default function CalendarPage() {
+  const ENABLE_BFV = process.env.NEXT_PUBLIC_ENABLE_BFV === "true";
+
   const [sessionChecked, setSessionChecked] = useState(false);
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -285,9 +218,21 @@ export default function CalendarPage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ Multi-Select Filter
-  const [pitchFilter, setPitchFilter] = useState<string[]>([]); // leer = alle Plätze
-  const [statusFilter, setStatusFilter] = useState<string[]>(["REQUESTED", "APPROVED"]); // REJECTED optional
+  // Multi-Select: Plätze (default = alle)
+  const [pitchFilterIds, setPitchFilterIds] = useState<string[]>([]);
+
+  // Multi-Select: Status (default = requested + approved)
+  const STATUS_OPTIONS = useMemo(
+    () => [
+      { value: "REQUESTED" as const, label: "Angefragt" },
+      { value: "APPROVED" as const, label: "Genehmigt" },
+      { value: "REJECTED" as const, label: "Abgelehnt" },
+    ],
+    []
+  );
+  const DEFAULT_STATUS = useMemo(() => ["REQUESTED", "APPROVED"] as const, []);
+  const ALL_STATUS = useMemo(() => ["REQUESTED", "APPROVED", "REJECTED"] as const, []);
+  const [statusFilter, setStatusFilter] = useState<string[]>([...DEFAULT_STATUS]);
 
   // -------------------------
   // Tooltip (Blase)
@@ -326,7 +271,6 @@ export default function CalendarPage() {
     setTip({ show: true, x, y, text });
   }
 
-  // Tooltip folgt Maus + AUTO-HIDE wenn nicht mehr über Event
   useEffect(() => {
     function onMove(e: MouseEvent) {
       lastMouse.current = { x: e.clientX, y: e.clientY };
@@ -400,8 +344,12 @@ export default function CalendarPage() {
     if (p.error) return setError(p.error.message);
     if (t.error) return setError(t.error.message);
 
-    setPitches((p.data ?? []) as Pitch[]);
+    const pitchList = (p.data ?? []) as Pitch[];
+    setPitches(pitchList);
     setTeams((t.data ?? []) as Team[]);
+
+    // Default: alle Plätze selektiert (wenn noch leer)
+    setPitchFilterIds((prev) => (prev.length ? prev : pitchList.map((x) => x.id)));
   }
 
   async function loadBookings(rangeStart: Date, rangeEnd: Date) {
@@ -454,30 +402,20 @@ export default function CalendarPage() {
   const teamById = useMemo(() => new Map(teams.map((x) => [x.id, x])), [teams]);
 
   const events = useMemo(() => {
-    const statusSelected = statusFilter.map((s) => String(s || "").toUpperCase());
-    const pitchSelected = pitchFilter;
+    const selectedStatus = new Set(statusFilter.map((s) => String(s).toUpperCase()));
+    const selectedPitches = new Set(pitchFilterIds);
 
     return bookings
-      .filter((b) => {
-        const s = String(b.status || "").toUpperCase();
-        // Wenn nichts ausgewählt: Standard (requested+approved)
-        if (statusSelected.length === 0) return s === "REQUESTED" || s === "APPROVED";
-        return statusSelected.includes(s);
-      })
-      .filter((b) => {
-        // Wenn kein Platz ausgewählt: alle
-        if (pitchSelected.length === 0) return true;
-        return pitchSelected.includes(b.pitch_id);
-      })
+      .filter((b) => selectedPitches.has(b.pitch_id))
+      .filter((b) => selectedStatus.has(String(b.status || "").toUpperCase()))
       .map((b) => {
         const pitch = pitchById.get(b.pitch_id)?.name ?? "Platz";
         const team = teamById.get(b.team_id)?.name ?? "Team";
         const status = String(b.status || "").toUpperCase();
-        const statusDE = statusLabelDE(status);
 
         const tooltipText = [
           `${pitch} – ${team}`,
-          `Status: ${statusDE}`,
+          `Status: ${status}`,
           `Von: ${new Date(b.start_at).toLocaleString("de-DE")}`,
           `Bis: ${new Date(b.end_at).toLocaleString("de-DE")}`,
           b.note ? `Notiz: ${b.note}` : null,
@@ -487,13 +425,13 @@ export default function CalendarPage() {
 
         return {
           id: b.id,
-          title: `${pitch} – ${team} (${statusDE})`,
+          title: `${pitch} – ${team} (${status})`,
           start: b.start_at,
           end: b.end_at,
           extendedProps: { status, tooltipText },
         };
       });
-  }, [bookings, pitchFilter, statusFilter, pitchById, teamById]);
+  }, [bookings, pitchFilterIds, statusFilter, pitchById, teamById]);
 
   async function logout() {
     await supabase.auth.signOut();
@@ -507,11 +445,10 @@ export default function CalendarPage() {
   const displayName = (profile?.full_name && profile.full_name.trim()) || userEmail || "User";
   const isAdmin = role === "ADMIN";
 
-  // ✅ Restore view + date from URL: /calendar?view=dayGridMonth&date=2026-02-09
+  // Restore view + date from URL
   const url = new URL(window.location.href);
   const viewParam = url.searchParams.get("view") || "timeGridWeek";
   const dateParam = url.searchParams.get("date"); // YYYY-MM-DD
-
   const initialView = viewParam === "dayGridMonth" || viewParam === "timeGridWeek" ? viewParam : "timeGridWeek";
   const initialDate = dateParam ? new Date(`${dateParam}T12:00:00`) : undefined;
 
@@ -546,13 +483,27 @@ export default function CalendarPage() {
             + Antrag
           </Link>
 
-          {/* ✅ Admin: "Genehmigen" | Nicht-Admin: "Genehmigungen" (read-only Seite) */}
           <Link
             href="/approve"
             style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid #273243", textDecoration: "none" }}
           >
             {isAdmin ? "Genehmigen" : "Genehmigungen"}
           </Link>
+
+          {/* ✅ BFV Button wieder sichtbar (nur Admin + Toggle) */}
+          {isAdmin && ENABLE_BFV && (
+            <Link
+              href="/bfv"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid #273243",
+                textDecoration: "none",
+              }}
+            >
+              Ligaspiele planen (BFV)
+            </Link>
+          )}
 
           <button
             onClick={logout}
@@ -564,27 +515,23 @@ export default function CalendarPage() {
       </div>
 
       {/* Filter */}
-      <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <MultiSelectMenu
-                    label="Platz"
+      <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <MultiSelectDropdown
+          label="Plätze"
           options={pitches.map((p) => ({ value: p.id, label: p.name }))}
-          selected={pitchFilter}
-          onChange={setPitchFilter}
-          defaultSelected={[]} // leer = alle Plätze
-          emptyMeansAll={true}
+          selected={pitchFilterIds}
+          setSelected={setPitchFilterIds}
+          defaultSelected={pitches.map((p) => p.id)}
+          allSelected={pitches.map((p) => p.id)}
         />
 
-        <MultiSelectMenu
+        <MultiSelectDropdown
           label="Status"
-          options={[
-            { value: "REQUESTED", label: "Angefragt" },
-            { value: "APPROVED", label: "Genehmigt" },
-            { value: "REJECTED", label: "Abgelehnt" },
-          ]}
-          selected={statusFilter}
-          onChange={setStatusFilter}
-          defaultSelected={["REQUESTED", "APPROVED"]}
-          emptyMeansAll={false} // leer bedeutet hier nicht "Alle", sondern Default-Logik (requested+approved)
+          options={STATUS_OPTIONS as any}
+          selected={statusFilter as any}
+          setSelected={(v) => setStatusFilter(v as any)}
+          defaultSelected={[...DEFAULT_STATUS] as any}
+          allSelected={[...ALL_STATUS] as any}
         />
       </div>
 
@@ -625,7 +572,6 @@ export default function CalendarPage() {
             const s = String(arg.event.extendedProps.status || "").toUpperCase();
             return [`status-${s}`];
           }}
-          // ✅ Woche: Drag/Markieren -> Antrag (Mindestdauer 60 Minuten)
           selectable={true}
           selectMirror={true}
           unselectAuto={true}
@@ -647,7 +593,6 @@ export default function CalendarPage() {
 
             goToRequestNew(start, finalEnd, "timeGridWeek", start);
           }}
-          // ✅ Monat: Klick auf Tag -> Antrag mit Default 12:00–13:00
           dateClick={(arg) => {
             hideTip();
             if (arg.view?.type !== "dayGridMonth") return;
@@ -658,7 +603,6 @@ export default function CalendarPage() {
 
             goToRequestNew(start, end, "dayGridMonth", start);
           }}
-          // Tooltip/Blase
           eventMouseEnter={(info) => {
             const text = String(info.event.extendedProps.tooltipText || info.event.title || "");
             const { x, y } = lastMouse.current;
@@ -669,7 +613,6 @@ export default function CalendarPage() {
           eventMouseLeave={() => hideTip()}
         />
 
-        {/* Tooltip Layer */}
         {tip.show && (
           <div
             ref={tooltipRef}

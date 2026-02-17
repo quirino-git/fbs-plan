@@ -1029,6 +1029,8 @@ export default function BfvPage() {
                       {isBooked ? (
                         <div
                           style={{
+                            width: "100%",
+                            maxWidth: 420,
                             minWidth: 280,
                             padding: "8px 10px",
                             borderRadius: 10,
@@ -1039,6 +1041,10 @@ export default function BfvPage() {
                               ? "rgba(250, 204, 21, 0.22)"
                               : "rgba(40, 160, 80, 0.20)",
                             fontWeight: 800,
+                                                        height: 40,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                           }}
                         >
                           {bookedPitchName || "Gebucht"}
@@ -1055,6 +1061,8 @@ export default function BfvPage() {
                             setSelectedPitchByUid((m) => ({ ...m, [g.uid]: v }));
                           }}
                           style={{
+                            width: "100%",
+                            maxWidth: 420,
                             minWidth: 280,
                             padding: "8px 10px",
                             borderRadius: 10,
@@ -1065,6 +1073,7 @@ export default function BfvPage() {
                               ? "rgba(250, 204, 21, 0.18)"
                               : "rgba(255,255,255,0.06)",
                             color: "white",
+                            colorScheme: "dark",
                             outline: "none",
                             cursor: isBusy ? "not-allowed" : "pointer",
                           }}
@@ -1118,7 +1127,7 @@ export default function BfvPage() {
                         padding: 10,
                         borderBottom: "1px solid rgba(255,255,255,0.08)",
                         textAlign: "right",
-                        minWidth: 190,
+                        minWidth: 240,
                         whiteSpace: "nowrap",
                       }}
                     >
@@ -1130,6 +1139,11 @@ export default function BfvPage() {
                             padding: "8px 12px",
                             borderRadius: 10,
                             fontWeight: 800,
+                            minWidth: 220,
+                            height: 40,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                             cursor: isBusy || busy ? "not-allowed" : "pointer",
                             border: "1px solid rgba(255,255,255,0.22)",
 background: "rgba(40, 160, 80, 0.25)",
@@ -1148,6 +1162,11 @@ background: "rgba(40, 160, 80, 0.25)",
                             padding: "8px 12px",
                             borderRadius: 10,
                             fontWeight: 800,
+                            minWidth: 220,
+                            height: 40,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                             cursor:
                               isBusy || busy || candidates.length === 0 || !selectedPitch
                                 ? "not-allowed"

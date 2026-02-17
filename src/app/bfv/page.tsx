@@ -111,14 +111,18 @@ function parseIcs(icsText: string): IcsGame[] {
     }
     if (line.startsWith("END:VEVENT")) {
       if (inEvent && uid && summary && dtStart && dtEnd) {
-        games.push({
-          uid,
-          summary,
-          start: dtStart,
-          end: dtEnd,
-          location: location || null,
-          isHome: null,
-        });
+        // BFV liefert teils "SPIELFREI"-Einträge. Diese sollen nicht in der Planung auftauchen.
+        const sum = summary.toLowerCase();
+        if (!sum.includes("spielfrei")) {
+          games.push({
+            uid,
+            summary,
+            start: dtStart,
+            end: dtEnd,
+            location: location || null,
+            isHome: null,
+          });
+        }
       }
       inEvent = false;
       continue;
@@ -499,8 +503,9 @@ export default function BfvPage() {
     // Damit vermeiden wir falsche Heimspiel-Erkennung über Team-/Vereinsnamen.
     // clubName/teamName bleiben als Parameter (falls wir das später erweitern wollen).
     return rawGames.map((g) => {
-      const hasLocation = !!(g.location && g.location.trim().length > 0);
-      const isHome = hasLocation ? isHomeLocation(g.location) : isHomeLocation(g.summary) ? true : null;
+      // Heimspiel ausschließlich über LOCATION (Feldbergstraße) bestimmen.
+      // Wenn LOCATION fehlt, behandeln wir es als "nicht Heim", damit keine falschen Heimspiele entstehen.
+      const isHome = isHomeLocation(g.location);
       return { ...g, isHome };
     });
   }

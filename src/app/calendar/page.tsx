@@ -154,7 +154,7 @@ export default function CalendarPage() {
   // View switcher (Woche/Monat/Liste)
   // -------------------------
   const calendarRef = useRef<FullCalendar | null>(null);
-  const [viewMode, setViewMode] = useState<"week" | "month" | "list" | "dashboard">("week");
+  const [viewMode, setViewMode] = useState<"week" | "month" | "list" | "dashboard" | "mobile">("week");
 
   // List view range (von/bis, inkl. Tage)
   const [listFrom, setListFrom] = useState<string>(() => {
@@ -168,6 +168,7 @@ const [listTo, setListTo] = useState<string>(() => {
     d.setHours(0, 0, 0, 0);
     return d.toISOString().slice(0, 10);
   });
+  const [mobileDay, setMobileDay] = useState<string>(() => new Date().toISOString().slice(0, 10));
 function hideTip() {
     setTip((t) => ({ ...t, show: false }));
   }
@@ -482,6 +483,20 @@ function computeOverlapLayout(boxes: OverlapBox[]): Map<string, OverlapPos> {
     await loadBookings(start, endExclusive);
   }
 
+  async function loadSingleDay(dayIso: string) {
+    const day = parseDateInput(dayIso);
+    if (!day) {
+      setError("Bitte ein gültiges Datum wählen.");
+      return;
+    }
+    const start = startOfDay(day);
+    const endExclusive = addDays(start, 1);
+    setListFrom(dayIso);
+    setListTo(dayIso);
+    setMobileDay(dayIso);
+    await loadBookings(start, endExclusive);
+  }
+
   // -------------------------
   // Navigation to request page
   // -------------------------
@@ -510,12 +525,14 @@ function PitchDashboardView({
   from,
   to,
   darkMode,
+  singleColumn = false,
 }: {
   pitches: Pitch[];
   bookings: Booking[];
   from: string;
   to: string;
   darkMode: boolean;
+  singleColumn?: boolean;
 }) {
   const [orderByDay, setOrderByDay] = useState<Record<string, string[]>>({});
   const [dropHint, setDropHint] = useState<{ dayKey: string; insertIndex: number } | null>(null);
@@ -704,7 +721,7 @@ const computeInsertIndexFromPointer = (dayKeyValue: string, clientX: number, cli
   return ordered.findIndex((x) => x.id === last.id) + 1;
 };
 
-const gridCols = "repeat(auto-fit, minmax(320px, 1fr))";
+const gridCols = singleColumn ? "minmax(0, 1fr)" : "repeat(auto-fit, minmax(320px, 1fr))";
 
 
   return (
@@ -754,7 +771,7 @@ const gridCols = "repeat(auto-fit, minmax(320px, 1fr))";
                   data-pitch-card="1"
                   data-day-key={day.key}
                   data-pitch-id={String(p.id)}
-                  className="card print-pitch-block"
+                  className="card"
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.setData("text/plain", String(p.id));
@@ -848,7 +865,7 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
   if (!sessionChecked) return null;
 
   return (
-    <div style={{ maxWidth: viewMode === "list" || viewMode === "dashboard" ? "none" : 1200, width: "100%", margin: "24px auto", padding: 16 }}>
+    <div style={{ maxWidth: viewMode === "list" || viewMode === "dashboard" || viewMode === "mobile" ? "none" : 1200, width: "100%", margin: "24px auto", padding: 16 }}>
       <style jsx global>{`
         @media print {
           @page { size: A4 landscape; margin: 8mm; }
@@ -880,11 +897,10 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
           * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
           .print-day {
-            /* Neuer Tag auf neue Seite, aber Tag darf umbrechen (verhindert große Leerflächen) */
             break-before: page;
-            break-inside: auto;
+            break-inside: avoid;
             page-break-before: always;
-            page-break-inside: auto;
+            page-break-inside: avoid;
           }
           .print-day:first-of-type {
             break-before: auto;
@@ -893,25 +909,6 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
           .print-day .day-header {
             break-after: avoid;
             page-break-after: avoid;
-          }
-
-          /* Einzelne Karten / Blöcke möglichst nicht zerschneiden */
-          .print-booking-card,
-          .print-event,
-          .print-grid > .card {
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          /* Grid selbst darf umbrechen */
-          .print-grid {
-            break-inside: auto;
-            page-break-inside: auto;
-          }
-
-          .print-pitch-block {
-            break-inside: avoid;
-            page-break-inside: avoid;
           }
         }
       `}</style>
@@ -1081,11 +1078,99 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
 >
   Dashboard
 </button>
+<button
+  onClick={async () => {
+    setViewMode("mobile");
+    await loadSingleDay(mobileDay);
+  }}
+  style={{
+    padding: "8px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: viewMode === "mobile" ? "rgba(255,255,255,0.10)" : "transparent",
+    color: "#e6edf3",
+    fontWeight: 800,
+    cursor: "pointer",
+  }}
+>
+  Handy
+</button>
         </div>
 
         
 
-{viewMode === "dashboard" ? (
+{viewMode === "mobile" ? (
+          <div className="card" style={{ padding: 16 }}>
+            <div
+              className="no-print"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+                marginBottom: 14,
+              }}
+            >
+              <button
+                onClick={async () => {
+                  const d = parseDateInput(mobileDay) ?? new Date();
+                  const prev = addDays(startOfDay(d), -1);
+                  const iso = prev.toISOString().slice(0, 10);
+                  await loadSingleDay(iso);
+                }}
+                style={{ padding: "9px 12px", borderRadius: 12, fontWeight: 800 }}
+                title="Vorheriger Tag"
+              >
+                ←
+              </button>
+
+              <input
+                type="date"
+                value={mobileDay}
+                onChange={async (e) => {
+                  const v = e.target.value;
+                  setMobileDay(v);
+                  if (v) await loadSingleDay(v);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 12,
+                  border: "1px solid #273243",
+                  background: "transparent",
+                  color: "#e6edf3",
+                }}
+              />
+
+              <button
+                onClick={async () => {
+                  const d = parseDateInput(mobileDay) ?? new Date();
+                  const next = addDays(startOfDay(d), 1);
+                  const iso = next.toISOString().slice(0, 10);
+                  await loadSingleDay(iso);
+                }}
+                style={{ padding: "9px 12px", borderRadius: 12, fontWeight: 800 }}
+                title="Nächster Tag"
+              >
+                →
+              </button>
+
+              <div style={{ opacity: 0.75, fontSize: 13, marginLeft: 8 }}>
+                Ein Tag · vertikale Handy-Ansicht
+              </div>
+            </div>
+
+            <div style={{ maxWidth: 460, width: "100%", margin: "0 auto" }}>
+              <PitchDashboardView
+                pitches={pitches}
+                bookings={filteredBookings}
+                from={mobileDay}
+                to={mobileDay}
+                darkMode={true}
+                singleColumn={true}
+              />
+            </div>
+          </div>
+        ) : viewMode === "dashboard" ? (
   <div className="card" style={{ padding: 16 }}>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end", marginBottom: 12 }}>
       <div>

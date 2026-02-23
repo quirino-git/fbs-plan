@@ -925,7 +925,7 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
         }}
       >
         <div>
-          <div style={{ fontSize: 22, fontWeight: 900 }}>FC Stern – Platzbelegung</div>
+          <div style={{ fontSize: 22, fontWeight: 900 }}>BSA Feldbergstr. Spiele-Belegungsplan</div>
           <div style={{ opacity: 0.85, marginTop: 4 }}>
             {profile?.full_name ?? "—"} • Rolle: {profile?.role ?? "—"} • {profile?.active ? "aktiv" : "inaktiv"}
           </div>

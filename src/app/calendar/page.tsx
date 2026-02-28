@@ -161,14 +161,14 @@ export default function CalendarPage() {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
+    return toYMDLocal(d);
   });
 const [listTo, setListTo] = useState<string>(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
-    return d.toISOString().slice(0, 10);
+    return toYMDLocal(d);
   });
-  const [mobileDay, setMobileDay] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [mobileDay, setMobileDay] = useState<string>(() => toYMDLocal(new Date()));
 function hideTip() {
     setTip((t) => ({ ...t, show: false }));
   }
@@ -213,7 +213,7 @@ function hideTip() {
     const sunday = new Date(monday);
     sunday.setDate(sunday.getDate() + 6);
 
-    const toISO = (d: Date) => d.toISOString().slice(0, 10);
+    const toISO = (d: Date) => toYMDLocal(d);
     setListFrom(toISO(monday));
     setListTo(toISO(sunday));
   }, [listFrom, listTo]);
@@ -420,6 +420,13 @@ function computeOverlapLayout(boxes: OverlapBox[]): Map<string, OverlapPos> {
     const out = new Date(d);
     out.setHours(0, 0, 0, 0);
     return out;
+  }
+
+  function toYMDLocal(d: Date) {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
   }
 
   function clamp(date: Date, min: Date, max: Date) {
@@ -1112,13 +1119,15 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
               }}
             >
               <button
+                type="button"
                 onClick={async () => {
                   const d = parseDateInput(mobileDay) ?? new Date();
                   const prev = addDays(startOfDay(d), -1);
-                  const iso = prev.toISOString().slice(0, 10);
+                  const iso = toYMDLocal(prev);
+                  setMobileDay(iso);
                   await loadSingleDay(iso);
                 }}
-                style={{ padding: "9px 12px", borderRadius: 12, fontWeight: 800 }}
+                style={{ padding: "9px 12px", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}
                 title="Vorheriger Tag"
               >
                 ←
@@ -1142,13 +1151,15 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
               />
 
               <button
+                type="button"
                 onClick={async () => {
                   const d = parseDateInput(mobileDay) ?? new Date();
                   const next = addDays(startOfDay(d), 1);
-                  const iso = next.toISOString().slice(0, 10);
+                  const iso = toYMDLocal(next);
+                  setMobileDay(iso);
                   await loadSingleDay(iso);
                 }}
-                style={{ padding: "9px 12px", borderRadius: 12, fontWeight: 800 }}
+                style={{ padding: "9px 12px", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}
                 title="Nächster Tag"
               >
                 →

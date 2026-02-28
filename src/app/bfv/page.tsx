@@ -1093,11 +1093,19 @@ export default function BfvPage() {
       </div>
 
       <div className="card" style={{ marginTop: 12, padding: 16 }}>
-        <div style={{ overflowX: "auto" }}>
+        {/*
+          UI-Note:
+          - Die Tabelle soll ohne horizontales Scrollen auskommen.
+          - Daher geben wir den kleinen Spalten feste (schmale) Breiten und lassen "Spiel" flexibel.
+          - Keine erzwungenen Mindestbreiten in Controls.
+        */}
+        <div style={{ overflowX: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ textAlign: "left" }}>
-                <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Datum</th>
+                <th style={{ padding: 10, borderBottom: "1px solid #273243", width: 110, whiteSpace: "nowrap" }}>
+                  Datum
+                </th>
                 {isDayPlanning && (
                   <>
                     <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Verein</th>
@@ -1105,11 +1113,19 @@ export default function BfvPage() {
                   </>
                 )}
                 <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Spiel</th>
-                <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Heim?</th>
-                <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Von</th>
-                <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Bis</th>
-                <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Freie Plätze</th>
-                <th style={{ padding: 10, borderBottom: "1px solid #273243" }}>Aktion</th>
+                <th style={{ padding: 10, borderBottom: "1px solid #273243", width: 70, whiteSpace: "nowrap" }}>
+                  Heim?
+                </th>
+                <th style={{ padding: 10, borderBottom: "1px solid #273243", width: 70, whiteSpace: "nowrap" }}>
+                  Von
+                </th>
+                <th style={{ padding: 10, borderBottom: "1px solid #273243", width: 70, whiteSpace: "nowrap" }}>
+                  Bis
+                </th>
+                <th style={{ padding: 10, borderBottom: "1px solid #273243", width: 230 }}>Freie Plätze</th>
+                <th style={{ padding: 10, borderBottom: "1px solid #273243", width: 200, textAlign: "left" }}>
+                  Aktion
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -1131,7 +1147,7 @@ export default function BfvPage() {
 
                 return (
                   <tr key={`${g.bfvTeamId}:${g.uid}`}>
-                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", width: 110, whiteSpace: "nowrap" }}>
                       {fmtDateDE(g.start)}
                     </td>
 
@@ -1149,15 +1165,15 @@ export default function BfvPage() {
 
                     <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{g.summary}</td>
 
-                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", width: 70, whiteSpace: "nowrap" }}>
                       {g.isHome === true ? "Ja" : g.isHome === false ? "Nein" : "?"}
                     </td>
 
-                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", width: 70, whiteSpace: "nowrap" }}>
                       {fmtTimeDE(g.start)}
                     </td>
 
-                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", width: 70, whiteSpace: "nowrap" }}>
                       {fmtTimeDE(g.end)}
                     </td>
 
@@ -1165,19 +1181,21 @@ export default function BfvPage() {
                       style={{
                         padding: 10,
                         borderBottom: "1px solid rgba(255,255,255,0.08)",
+                        width: 230,
                         background: forcedSelected
                           ? "rgba(250, 204, 21, 0.08)"
                           : "transparent",
                         borderRadius: 12,
+                        minWidth: 0,
                       }}
                     >
                       {isBooked ? (
                         <div
                           style={{
                             width: "100%",
-                            maxWidth: 420,
-                            minWidth: 280,
-                            padding: "8px 10px",
+                            maxWidth: 230,
+                            minWidth: 0,
+                            padding: "6px 10px",
                             borderRadius: 10,
                             border: forcedBooked
                               ? "1px solid rgba(250, 204, 21, 0.55)"
@@ -1186,10 +1204,14 @@ export default function BfvPage() {
                               ? "rgba(250, 204, 21, 0.22)"
                               : "rgba(40, 160, 80, 0.20)",
                             fontWeight: 800,
-                                                        height: 40,
+                            height: "auto",
+                            minHeight: 34,
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
+                            lineHeight: 1.15,
+                            whiteSpace: "normal",
+                            wordBreak: "break-word",
                           }}
                         >
                           {bookedPitchName || "Gebucht"}
@@ -1207,10 +1229,11 @@ export default function BfvPage() {
                           }}
                           style={{
                             width: "100%",
-                            maxWidth: 420,
-                            minWidth: 280,
-                            padding: "8px 10px",
+                            maxWidth: 230,
+                            minWidth: 0,
+                            padding: "6px 8px",
                             borderRadius: 10,
+                            fontSize: 13,
                             border: forcedSelected
                               ? "1px solid rgba(250, 204, 21, 0.55)"
                               : "1px solid rgba(255,255,255,0.18)",
@@ -1224,8 +1247,8 @@ export default function BfvPage() {
                           }}
                         >
                           <option value="" style={{ backgroundColor: "#0b1220", color: "rgba(255,255,255,0.8)" }}>
-                          Platz wählen…
-                        </option>
+                            Platz wählen…
+                          </option>
 
                           {avail.map((p) => (
                             <option
@@ -1271,9 +1294,10 @@ export default function BfvPage() {
                       style={{
                         padding: 10,
                         borderBottom: "1px solid rgba(255,255,255,0.08)",
-                        textAlign: "right",
-                        minWidth: 240,
-                        whiteSpace: "nowrap",
+                        textAlign: "left",
+                        verticalAlign: "middle",
+                        width: 200,
+                        minWidth: 0,
                       }}
                     >
                       {isBooked ? (
@@ -1281,11 +1305,15 @@ export default function BfvPage() {
                           disabled={isBusy || busy}
                           onClick={() => undoBooking(g.uid)}
                           style={{
-                            padding: "8px 12px",
+                            width: "auto",
+                            maxWidth: 220,
+                            minWidth: 170,
+                            padding: "6px 10px",
                             borderRadius: 10,
                             fontWeight: 800,
-                            minWidth: 220,
-                            height: 40,
+                            fontSize: 13,
+                            height: "auto",
+                            minHeight: 34,
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -1293,22 +1321,27 @@ export default function BfvPage() {
                             border: "1px solid rgba(255,255,255,0.22)",
 background: "rgba(40, 160, 80, 0.25)",
                             color: "rgba(220,255,235,0.95)",
-                            whiteSpace: "nowrap",
+                            whiteSpace: "normal",
+                            lineHeight: 1.15,
                             opacity: isBusy || busy ? 0.6 : 1,
                           }}
                         >
-                          Buchung zurücknehmen
+                          Zurücknehmen
                         </button>
                       ) : (
                         <button
                           disabled={isBusy || busy || candidates.length === 0 || !selectedPitch}
                           onClick={() => bookApproved(g, selectedPitch)}
                           style={{
-                            padding: "8px 12px",
+                            width: "auto",
+                            maxWidth: 220,
+                            minWidth: 170,
+                            padding: "6px 10px",
                             borderRadius: 10,
                             fontWeight: 800,
-                            minWidth: 220,
-                            height: 40,
+                            fontSize: 13,
+                            height: "auto",
+                            minHeight: 34,
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -1319,7 +1352,8 @@ background: "rgba(40, 160, 80, 0.25)",
                             border: "1px solid rgba(255,255,255,0.18)",
                             background: "rgba(255,255,255,0.08)",
                             color: "white",
-                            whiteSpace: "nowrap",
+                            whiteSpace: "normal",
+                            lineHeight: 1.15,
                             opacity:
                               isBusy || busy || candidates.length === 0 || !selectedPitch
                                 ? 0.5

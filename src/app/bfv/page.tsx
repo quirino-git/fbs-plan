@@ -815,7 +815,6 @@ export default function BfvPage() {
   useEffect(() => {
     if (!sessionChecked) return;
     if (!enableBFV) return;
-    if (!isAdmin) return;
 
     // Tagesplanung aktiv
     if (isDayPlanning) {
@@ -828,10 +827,14 @@ export default function BfvPage() {
     if (!selectedBfvTeam?.id) return;
     loadGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionChecked, enableBFV, isAdmin, selectedBfvTeam?.id, homeOnly, isDayPlanning, dayPlanDate]);
+  }, [sessionChecked, enableBFV, selectedBfvTeam?.id, homeOnly, isDayPlanning, dayPlanDate]);
 
   // ---------- Book / Undo ----------
   async function bookApproved(game: GameRow, pitchSelection: string) {
+    if (!isAdmin) {
+      setError("Nur Admin kann Ligaspiele buchen.");
+      return;
+    }
     setBusyUid(game.uid);
     setError(null);
 
@@ -914,6 +917,10 @@ export default function BfvPage() {
   }
 
   async function undoBooking(gameUid: string) {
+    if (!isAdmin) {
+      setError("Nur Admin kann Buchungen zurücknehmen.");
+      return;
+    }
     const bookingId = bookedMap[gameUid];
     if (!bookingId) return;
 
@@ -969,24 +976,10 @@ export default function BfvPage() {
     );
   }
 
-  if (!isAdmin) {
-    return (
-      <div style={{ maxWidth: 1100, margin: "24px auto", padding: 16 }}>
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 18, fontWeight: 800 }}>Ligaspiele planen (BFV)</div>
-          <div style={{ marginTop: 10, opacity: 0.85 }}>Nur für Admin verfügbar.</div>
-          <div style={{ marginTop: 14 }}>
-            <Link href="/calendar" style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid #273243" }}>
-              ← Kalender
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // Anzeige-Infos
   const singleIcsUrl = selectedBfvTeam?.ics_url ?? null;
+  const canEdit = isAdmin;
 
   return (
     <div style={{ maxWidth: 1200, margin: "24px auto", padding: 16 }}>
@@ -999,6 +992,11 @@ export default function BfvPage() {
           <div style={{ opacity: 0.85, marginTop: 4 }}>
             {isDayPlanning ? `Tagesplanung: ${dayPlanDate}` : "Einzelplanung"}
           </div>
+          {!canEdit ? (
+            <div style={{ marginTop: 8, opacity: 0.85, fontSize: 13 }}>
+              Du bist <b>TRAINER</b>: du kannst die BFV-Planung ansehen, aber nicht buchen/ändern.
+            </div>
+          ) : null}
         </div>
         <Link
           href="/calendar"
@@ -1216,6 +1214,8 @@ export default function BfvPage() {
                         >
                           {bookedPitchName || "Gebucht"}
                         </div>
+                      ) : !canEdit ? (
+                        <span style={{ opacity: 0.75 }}>—</span>
                       ) : candidates.length === 0 ? (
                         <span style={{ color: "crimson", fontWeight: 700 }}>keine</span>
                       ) : (
@@ -1300,7 +1300,8 @@ export default function BfvPage() {
                         minWidth: 0,
                       }}
                     >
-                      {isBooked ? (
+                      {canEdit ? (
+                        isBooked ? (
                         <button
                           disabled={isBusy || busy}
                           onClick={() => undoBooking(g.uid)}
@@ -1328,7 +1329,7 @@ background: "rgba(40, 160, 80, 0.25)",
                         >
                           Zurücknehmen
                         </button>
-                      ) : (
+                        ) : (
                         <button
                           disabled={isBusy || busy || candidates.length === 0 || !selectedPitch}
                           onClick={() => bookApproved(g, selectedPitch)}
@@ -1362,6 +1363,11 @@ background: "rgba(40, 160, 80, 0.25)",
                         >
                           Buchen
                         </button>
+                        )
+                      ) : (
+                        <div style={{ opacity: 0.75, fontSize: 13 }}>
+                          {isBooked ? "Gebucht" : "Nur Admin"}
+                        </div>
                       )}
                     </td>
                   </tr>

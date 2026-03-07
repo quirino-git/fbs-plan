@@ -952,32 +952,30 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
           </Link>
 
           {isAdmin && (
-            <>
-              <Link
-                href="/approve"
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.18)",
-                  textDecoration: "none",
-                }}
-              >
-                Genehmigen
-              </Link>
-
-              <Link
-                href="/bfv"
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.18)",
-                  textDecoration: "none",
-                }}
-              >
-                Ligaspiele planen (BFV)
-              </Link>
-            </>
+            <Link
+              href="/approve"
+              style={{
+                padding: "8px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.18)",
+                textDecoration: "none",
+              }}
+            >
+              Genehmigen
+            </Link>
           )}
+
+          <Link
+            href="/bfv"
+            style={{
+              padding: "8px 12px",
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.18)",
+              textDecoration: "none",
+            }}
+          >
+            {isAdmin ? "Ligaspiele planen (BFV)" : "Ligaspiele ansehen (BFV)"}
+          </Link>
 
           <button
             onClick={async () => {

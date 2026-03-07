@@ -1060,7 +1060,7 @@ export default function BfvPage() {
 
           <label style={{ display: "flex", gap: 10, alignItems: "center", paddingBottom: 6 }}>
             <input type="checkbox" checked={homeOnly} onChange={(e) => setHomeOnly(e.target.checked)} />
-            nur Feldbergstraße
+            nur Heimspiele
           </label>
 
           <button

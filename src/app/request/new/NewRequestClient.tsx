@@ -5,7 +5,31 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 type Pitch = { id: string; name: string };
-type Team = { id: string; name: string; age_u: number };
+type Team = { id: string; name: string; age_u: number; sort_order: number | null };
+type BfvClub = { id: string; name: string };
+type BfvTeam = { id: string; club_id: string; name: string };
+
+function normalizeTeamName(name: string) {
+  return (name || "")
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/[–—-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getClubNameFromTeamName(name: string) {
+  const n = (name || "").trim();
+
+  if (n.startsWith("FC Stern ")) return "FC Stern";
+  if (n.startsWith("TSV Trudering ")) return "TSV Trudering";
+  if (n.startsWith("FC Dreistern ")) return "FC Dreistern";
+  if (n.startsWith("FC Dreistern/FC Stern")) return "FC Dreistern/FC Stern";
+  if (n.startsWith("FC Stern/FC Dreistern")) return "FC Dreistern/FC Stern";
+  if (n.startsWith("FC Stern/Dreistern")) return "FC Dreistern/FC Stern";
+
+  return "Nicht zugeordnet";
+}
 
 function addMinutesLocal(dtLocal: string, minutes: number) {
   // dtLocal: "YYYY-MM-DDTHH:mm"
@@ -23,6 +47,9 @@ export default function NewRequestClient() {
 
   const [pitches, setPitches] = useState<Pitch[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [bfvClubs, setBfvClubs] = useState<BfvClub[]>([]);
+  const [bfvTeams, setBfvTeams] = useState<BfvTeam[]>([]);
+  const [selectedClub, setSelectedClub] = useState("");
   const [teamId, setTeamId] = useState("");
   const [pitchId, setPitchId] = useState("");
   const [startAt, setStartAt] = useState("");
@@ -64,9 +91,11 @@ export default function NewRequestClient() {
       // Falls gar keine Zeit (z.B. Klick über +Antrag), optional default setzen:
       // (hier lassen wir es leer, du kannst aber auch "heute 12:00" setzen, wenn du willst)
 
-      const [p, t] = await Promise.all([
+      const [p, t, cRes, btRes] = await Promise.all([
         supabase.from("pitches").select("id,name").order("name"),
-        supabase.from("teams").select("id,name,age_u").order("age_u").order("name"),
+        supabase.from("teams").select("id,name,age_u,sort_order").order("sort_order", { ascending: true }).order("name", { ascending: true }),
+        supabase.from("bfv_clubs").select("id,name").order("name"),
+        supabase.from("bfv_teams").select("id,club_id,name").order("name"),
       ]);
 
       if (p.error) setError(p.error.message);
@@ -74,6 +103,12 @@ export default function NewRequestClient() {
 
       if (t.error) setError(t.error.message);
       else setTeams(t.data ?? []);
+
+      if (cRes.error) setError(cRes.error.message);
+      else setBfvClubs(cRes.data ?? []);
+
+      if (btRes.error) setError(btRes.error.message);
+      else setBfvTeams(btRes.data ?? []);
     })();
   }, [searchParams]);
 
@@ -92,6 +127,49 @@ export default function NewRequestClient() {
 
     if (e <= s) setEndAt(addMinutesLocal(startAt, 30));
   }, [startAt]); // bewusst nur startAt
+
+  const localClubByTeamName = useMemo(() => {
+    const clubNameById = new Map(bfvClubs.map((c) => [c.id, c.name]));
+    const mapped = new Map<string, string>();
+
+    for (const t of bfvTeams) {
+      const clubName = clubNameById.get(t.club_id);
+      if (!clubName) continue;
+      mapped.set(normalizeTeamName(t.name), clubName);
+    }
+
+    return mapped;
+  }, [bfvClubs, bfvTeams]);
+
+  const clubs = useMemo(() => {
+    const names = new Set<string>();
+
+    for (const t of teams) {
+      const mapped = localClubByTeamName.get(normalizeTeamName(t.name));
+      names.add(mapped ?? getClubNameFromTeamName(t.name));
+    }
+
+    return [...names].sort((a, b) => a.localeCompare(b, "de"));
+  }, [teams, localClubByTeamName]);
+
+  const filteredTeams = useMemo(() => {
+    if (!selectedClub) return [];
+    return teams.filter((t) => {
+      const mapped = localClubByTeamName.get(normalizeTeamName(t.name));
+      const club = mapped ?? getClubNameFromTeamName(t.name);
+      return club === selectedClub;
+    });
+  }, [teams, selectedClub, localClubByTeamName]);
+
+  useEffect(() => {
+    if (!selectedClub) {
+      if (teamId) setTeamId("");
+      return;
+    }
+
+    const stillValid = filteredTeams.some((t) => t.id === teamId);
+    if (!stillValid) setTeamId("");
+  }, [selectedClub, filteredTeams, teamId]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -135,14 +213,28 @@ export default function NewRequestClient() {
 
       <form onSubmit={submit} style={{ display: "grid", gap: 10 }}>
         <label>
-          Team
-          <select value={teamId} onChange={(e) => setTeamId(e.target.value)} required>
+          Verein
+          <select value={selectedClub} onChange={(e) => setSelectedClub(e.target.value)} required>
             <option value="" disabled>
               Bitte wählen
             </option>
-            {teams.map((t) => (
+            {clubs.map((club) => (
+              <option key={club} value={club}>
+                {club}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          Team
+          <select value={teamId} onChange={(e) => setTeamId(e.target.value)} required disabled={!selectedClub}>
+            <option value="" disabled>
+              Bitte wählen
+            </option>
+            {filteredTeams.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name} (U{t.age_u})
+                {t.name}
               </option>
             ))}
           </select>

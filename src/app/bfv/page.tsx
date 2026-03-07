@@ -18,7 +18,7 @@ type Pitch = {
   // optional: some queries fetch this from DB
   capacity_units?: number | null;
 };
-type Team = { id: string; name: string; age_u: number };
+type Team = { id: string; name: string; age_u: number; sort_order: number | null };
 
 type BfvClub = { id: string; name: string };
 type BfvTeam = {
@@ -417,7 +417,7 @@ export default function BfvPage() {
         supabase.from("bfv_clubs").select("id,name").order("name"),
         supabase.from("bfv_teams").select("id,club_id,name,age_u,ics_url,home_only").order("name"),
         supabase.from("pitches").select("id,name,type").order("name"),
-        supabase.from("teams").select("id,name,age_u").order("age_u").order("name"),
+        supabase.from("teams").select("id,name,age_u,sort_order"),
       ]);
 
       if (clubsRes.error) return setError(clubsRes.error.message);
@@ -438,9 +438,29 @@ export default function BfvPage() {
     })();
   }, [sessionChecked]);
 
+  const localSortMap = useMemo(() => {
+    const m = new Map<string, number | null>();
+    for (const t of teams) {
+      m.set(normalizeTeamName(t.name), t.sort_order ?? null);
+    }
+    return m;
+  }, [teams]);
+
   const teamsForClub = useMemo(
-    () => bfvTeams.filter((t) => t.club_id === selectedClubId),
-    [bfvTeams, selectedClubId]
+    () =>
+      bfvTeams
+        .filter((t) => t.club_id === selectedClubId)
+        .sort((a, b) => {
+          const aSort = localSortMap.get(normalizeTeamName(a.name));
+          const bSort = localSortMap.get(normalizeTeamName(b.name));
+
+          if (aSort != null && bSort != null && aSort !== bSort) return aSort - bSort;
+          if (aSort != null && bSort == null) return -1;
+          if (aSort == null && bSort != null) return 1;
+
+          return a.name.localeCompare(b.name, "de");
+        }),
+    [bfvTeams, selectedClubId, localSortMap]
   );
 
   const selectedClub = useMemo(() => clubs.find((c) => c.id === selectedClubId) ?? null, [clubs, selectedClubId]);
@@ -1041,7 +1061,6 @@ export default function BfvPage() {
               {teamsForClub.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
-                  {toULabel(t.age_u) ? ` (U${toULabel(t.age_u)})` : ""}
                 </option>
               ))}
             </select>
@@ -1156,7 +1175,6 @@ export default function BfvPage() {
                         </td>
                         <td style={{ padding: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                           {g.bfvTeamName}
-                          {toULabel(g.bfvAgeU) ? ` (U${toULabel(g.bfvAgeU)})` : ""}
                         </td>
                       </>
                     )}

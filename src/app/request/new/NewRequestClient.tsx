@@ -42,6 +42,17 @@ function addMinutesLocal(dtLocal: string, minutes: number) {
   )}`;
 }
 
+function toLocalDateTimeInputValue(value: string) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return value;
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function NewRequestClient() {
   const searchParams = useSearchParams();
 
@@ -60,8 +71,16 @@ export default function NewRequestClient() {
 
   // ✅ Return-to-calendar Link (zur richtigen View/Date zurück)
   const backHref = useMemo(() => {
-    const returnView = searchParams.get("returnView") || "timeGridWeek";
-    const returnDate = searchParams.get("returnDate"); // YYYY-MM-DD
+    const returnView = searchParams.get("returnView") || searchParams.get("from") || "timeGridWeek";
+    let returnDate = searchParams.get("returnDate"); // YYYY-MM-DD
+
+    if (!returnDate) {
+      const focus = searchParams.get("focus");
+      if (focus) {
+        const local = toLocalDateTimeInputValue(focus);
+        if (local) returnDate = local.slice(0, 10);
+      }
+    }
 
     const params = new URLSearchParams();
     params.set("view", returnView);
@@ -78,12 +97,17 @@ export default function NewRequestClient() {
         return;
       }
 
-      // ✅ Start/End aus Kalender übernehmen
-      const qsStart = searchParams.get("start"); // "YYYY-MM-DDTHH:mm"
-      const qsEnd = searchParams.get("end");
+      // ✅ Start/End/Pitch aus Kalender übernehmen
+      const qsStartRaw = searchParams.get("start");
+      const qsEndRaw = searchParams.get("end");
+      const qsPitchId = searchParams.get("pitchId");
+
+      const qsStart = qsStartRaw ? toLocalDateTimeInputValue(qsStartRaw) : "";
+      const qsEnd = qsEndRaw ? toLocalDateTimeInputValue(qsEndRaw) : "";
 
       if (qsStart) setStartAt(qsStart);
       if (qsEnd) setEndAt(qsEnd);
+      if (qsPitchId) setPitchId(qsPitchId);
 
       // wenn nur Start kommt: default 60 Minuten
       if (qsStart && !qsEnd) setEndAt(addMinutesLocal(qsStart, 60));

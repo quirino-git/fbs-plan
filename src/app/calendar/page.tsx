@@ -122,6 +122,16 @@ function roundToStep(date: Date, stepMinutes: number) {
   return new Date(Math.round(d.getTime() / ms) * ms);
 }
 
+function toLocalDateTimeInputValue(date: Date) {
+  const d = new Date(date);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function toLocalDateOnly(date: Date) {
+  return toLocalDateTimeInputValue(date).slice(0, 10);
+}
+
 export default function CalendarPage() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -507,13 +517,17 @@ function computeOverlapLayout(boxes: OverlapBox[]): Map<string, OverlapPos> {
   // -------------------------
   // Navigation to request page
   // -------------------------
-  function goToRequestNew(start: Date, end: Date, fromView: string, focusDate: Date) {
+  function goToRequestNew(start: Date, end: Date, fromView: string, focusDate: Date, pitchId?: string) {
     const params = new URLSearchParams();
-    params.set("start", start.toISOString());
-    params.set("end", end.toISOString());
+    params.set("start", toLocalDateTimeInputValue(start));
+    params.set("end", toLocalDateTimeInputValue(end));
+    params.set("returnView", fromView);
+    params.set("returnDate", toLocalDateOnly(focusDate));
+    // alte Parameter zusätzlich für Rückwärtskompatibilität
     params.set("from", fromView);
     params.set("focus", focusDate.toISOString());
-    window.location.href = `/request/new?${params.toString()}`;
+    if (pitchId) params.set("pitchId", pitchId);
+    window.location.assign(`/request/new?${params.toString()}`);
   }
 
   
@@ -1272,8 +1286,9 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
               const endMs = end.getTime();
               const durationMin = (endMs - startMs) / 60000;
 
-              const finalEnd =
+              const finalEndRaw =
                 !Number.isFinite(durationMin) || durationMin < 30 ? new Date(startMs + 60 * 60 * 1000) : end;
+              const finalEnd = roundToStep(finalEndRaw, step);
 
               goToRequestNew(start, finalEnd, "timeGridWeek", start);
             }}

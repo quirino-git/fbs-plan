@@ -132,6 +132,343 @@ function toLocalDateOnly(date: Date) {
   return toLocalDateTimeInputValue(date).slice(0, 10);
 }
 
+
+function addDays(date: Date, days: number) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function sameDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function startOfWeekMonday(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = (d.getDay() + 6) % 7; // Mon=0
+  d.setDate(d.getDate() - day);
+  return d;
+}
+
+function defaultWeekendRange(base: Date = new Date()) {
+  const d = new Date(base);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=So, 6=Sa
+
+  let saturday: Date;
+  if (day === 6) {
+    saturday = new Date(d); // heute ist Samstag
+  } else if (day === 0) {
+    saturday = addDays(d, -1); // heute ist Sonntag -> gestriger Samstag
+  } else {
+    saturday = addDays(d, 6 - day); // Mo-Fr -> kommender Samstag
+  }
+
+  const sunday = addDays(saturday, 1);
+  return { from: saturday, to: sunday };
+}
+
+function formatRangeLabel(rangeStart: Date, rangeEnd: Date) {
+  const sameMonth =
+    rangeStart.getMonth() === rangeEnd.getMonth() &&
+    rangeStart.getFullYear() === rangeEnd.getFullYear();
+
+  if (sameMonth) {
+    return `${rangeStart.getDate()}. – ${rangeEnd.getDate()}. ${rangeStart.toLocaleDateString("de-DE", {
+      month: "long",
+      year: "numeric",
+    })}`;
+  }
+
+  return `${rangeStart.toLocaleDateString("de-DE", {
+    day: "numeric",
+    month: "short",
+  })} – ${rangeEnd.toLocaleDateString("de-DE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })}`;
+}
+
+function bookingStatusColor(status: string) {
+  switch (String(status || "").toUpperCase()) {
+    case "APPROVED":
+      return "#2ecc71";
+    case "REQUESTED":
+      return "#f5a623";
+    case "REJECTED":
+      return "#ff5d5d";
+    case "CANCELLED":
+      return "#8b949e";
+    default:
+      return "#58a6ff";
+  }
+}
+
+function WeekAgendaView({
+  rangeStart,
+  rangeEnd,
+  bookings,
+  pitchById,
+  teamById,
+  onPrevRange,
+  onNextRange,
+  onPresetWeekend,
+  onFromChange,
+  onToChange,
+}: {
+  rangeStart: Date;
+  rangeEnd: Date;
+  bookings: Booking[];
+  pitchById: Map<string, Pitch>;
+  teamById: Map<string, Team>;
+  onPrevRange: () => void;
+  onNextRange: () => void;
+  onPresetWeekend: () => void;
+  onFromChange: (value: string) => void;
+  onToChange: (value: string) => void;
+}) {
+  const totalDays = Math.max(1, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / 86400000) + 1);
+  const days = useMemo(() => Array.from({ length: totalDays }, (_, i) => addDays(rangeStart, i)), [rangeStart, totalDays]);
+  const today = new Date();
+
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div
+        className="no-print"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={onPrevRange}
+            style={{ padding: "10px 14px", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}
+            title="Vorherige Woche"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            onClick={onNextRange}
+            style={{ padding: "10px 14px", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}
+            title="Nächste Woche"
+          >
+            →
+          </button>
+          <button
+            type="button"
+            onClick={onPresetWeekend}
+            style={{ padding: "10px 14px", borderRadius: 12, fontWeight: 800, cursor: "pointer" }}
+          >
+            Heute
+          </button>
+        </div>
+
+        <div style={{ fontSize: 18, fontWeight: 900, textAlign: "center", minWidth: 260 }}>
+          {formatRangeLabel(rangeStart, rangeEnd)}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <label style={{ fontSize: 13, color: "rgba(230,237,243,0.78)" }}>
+            Von
+            <input
+              type="date"
+              value={toLocalDateOnly(rangeStart)}
+              onChange={(e) => onFromChange(e.target.value)}
+              style={{
+                marginLeft: 8,
+                padding: "8px 10px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.16)",
+                background: "transparent",
+                color: "#e6edf3",
+              }}
+            />
+          </label>
+          <label style={{ fontSize: 13, color: "rgba(230,237,243,0.78)" }}>
+            Bis
+            <input
+              type="date"
+              value={toLocalDateOnly(rangeEnd)}
+              onChange={(e) => onToChange(e.target.value)}
+              style={{
+                marginLeft: 8,
+                padding: "8px 10px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.16)",
+                background: "transparent",
+                color: "#e6edf3",
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {days.map((day) => {
+          const dayStart = new Date(day);
+          dayStart.setHours(0, 0, 0, 0);
+          const dayEnd = addDays(dayStart, 1);
+
+          const dayBookings = bookings
+            .filter((b) => {
+              const bs = new Date(b.start_at);
+              const be = new Date(b.end_at);
+              return bs < dayEnd && be > dayStart;
+            })
+            .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
+
+          const isToday = sameDay(day, today);
+          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+
+          return (
+            <div
+              key={day.toISOString()}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "110px 1fr",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 18,
+                overflow: "hidden",
+                background: isToday
+                  ? "rgba(88, 166, 255, 0.06)"
+                  : isWeekend
+                  ? "rgba(255,255,255,0.025)"
+                  : "rgba(255,255,255,0.015)",
+              }}
+            >
+              <div
+                style={{
+                  padding: "16px 12px",
+                  borderRight: "1px solid rgba(255,255,255,0.07)",
+                  background: "rgba(255,255,255,0.04)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <div style={{ textAlign: "center", lineHeight: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 34,
+                      fontWeight: 900,
+                      color: isWeekend ? "#f0b6b6" : "#e6edf3",
+                    }}
+                  >
+                    {day.getDate()}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: 6,
+                      fontSize: 22,
+                      fontWeight: 500,
+                      color: isWeekend ? "#f0b6b6" : "rgba(230,237,243,0.92)",
+                    }}
+                  >
+                    {day.toLocaleDateString("de-DE", { weekday: "short" }).replace(".", "")}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: "14px 16px", minHeight: 102 }}>
+                {dayBookings.length === 0 ? (
+                  <div style={{ color: "rgba(230,237,243,0.45)", fontStyle: "italic", paddingTop: 4 }}>
+                    Keine Termine
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {dayBookings.map((b) => {
+                      const color = bookingStatusColor(b.status);
+                      const pitchName = b.pitches?.name ?? pitchById.get(b.pitch_id)?.name ?? "Platz";
+                      const teamName = bookingLabelLikeDashboard(b) || b.teams?.name || teamById.get(b.team_id)?.name || "Termin";
+
+                      return (
+                        <div
+                          key={b.id}
+                          title={`${fmtTime(b.start_at)}–${fmtTime(b.end_at)}\n${pitchName}\n${teamName}\n${b.status}`}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "6px 92px 1fr",
+                            alignItems: "start",
+                            gap: 10,
+                            padding: "6px 4px",
+                            borderRadius: 12,
+                            background: "rgba(255,255,255,0.02)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 4,
+                              borderRadius: 999,
+                              alignSelf: "stretch",
+                              background: color,
+                              minHeight: 24,
+                              marginLeft: 1,
+                            }}
+                          />
+                          <div
+                            style={{
+                              fontSize: 15,
+                              fontWeight: 800,
+                              whiteSpace: "nowrap",
+                              color: "#dce6f3",
+                            }}
+                          >
+                            {fmtTime(b.start_at)}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 15,
+                                fontWeight: 700,
+                                color: "#e6edf3",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {teamName}
+                            </div>
+                            <div
+                              style={{
+                                marginTop: 2,
+                                fontSize: 13,
+                                color: "rgba(230,237,243,0.74)",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {pitchName} · {fmtTime(b.start_at)}–{fmtTime(b.end_at)}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
 export default function CalendarPage() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -165,6 +502,7 @@ export default function CalendarPage() {
   // -------------------------
   const calendarRef = useRef<FullCalendar | null>(null);
   const [viewMode, setViewMode] = useState<"week" | "month" | "list" | "dashboard" | "mobile">("week");
+  const [weekRange, setWeekRange] = useState<{ from: Date; to: Date }>(() => defaultWeekendRange(new Date()));
 
   // List view range (von/bis, inkl. Tage)
   const [listFrom, setListFrom] = useState<string>(() => {
@@ -211,6 +549,17 @@ function hideTip() {
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, [tip.show, tip.text]);
+
+  useEffect(() => {
+    if (viewMode !== "week") return;
+    const start = new Date(weekRange.from);
+    start.setHours(0, 0, 0, 0);
+    const endInclusive = new Date(weekRange.to);
+    endInclusive.setHours(0, 0, 0, 0);
+    const endExclusive = addDays(endInclusive, 1);
+    loadBookings(start, endExclusive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, weekRange.from, weekRange.to]);
 
   // Default List-Zeitraum: aktuelle Woche (Mo..So)
   useEffect(() => {
@@ -1029,8 +1378,7 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
           <button
             onClick={() => {
               setViewMode("week");
-              const api = (calendarRef.current as any)?.getApi?.();
-              api?.changeView?.("timeGridWeek");
+              setWeekRange(defaultWeekendRange(new Date()));
             }}
             style={{
               padding: "8px 12px",
@@ -1047,8 +1395,6 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
           <button
             onClick={() => {
               setViewMode("month");
-              const api = (calendarRef.current as any)?.getApi?.();
-              api?.changeView?.("dayGridMonth");
             }}
             style={{
               padding: "8px 12px",
@@ -1237,11 +1583,48 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
     <PitchDashboardView pitches={pitches} bookings={filteredBookings} from={listFrom} to={listTo} darkMode={true} />
     {listDays.length === 0 && <div style={{ opacity: 0.8, marginTop: 10 }}>Bitte Zeitraum wählen.</div>}
   </div>
-) : viewMode !== "list" ? (
+) : viewMode === "week" ? (
+          <WeekAgendaView
+            rangeStart={weekRange.from}
+            rangeEnd={weekRange.to}
+            bookings={filteredBookings}
+            pitchById={pitchById}
+            teamById={teamById}
+            onPrevRange={() =>
+              setWeekRange((prev) => {
+                const span = Math.max(1, Math.floor((prev.to.getTime() - prev.from.getTime()) / 86400000) + 1);
+                return { from: addDays(prev.from, -span), to: addDays(prev.to, -span) };
+              })
+            }
+            onNextRange={() =>
+              setWeekRange((prev) => {
+                const span = Math.max(1, Math.floor((prev.to.getTime() - prev.from.getTime()) / 86400000) + 1);
+                return { from: addDays(prev.from, span), to: addDays(prev.to, span) };
+              })
+            }
+            onPresetWeekend={() => setWeekRange(defaultWeekendRange(new Date()))}
+            onFromChange={(value) =>
+              setWeekRange((prev) => {
+                const from = new Date(`${value}T00:00:00`);
+                if (Number.isNaN(from.getTime())) return prev;
+                const to = prev.to < from ? from : prev.to;
+                return { from, to };
+              })
+            }
+            onToChange={(value) =>
+              setWeekRange((prev) => {
+                const to = new Date(`${value}T00:00:00`);
+                if (Number.isNaN(to.getTime())) return prev;
+                const from = to < prev.from ? to : prev.from;
+                return { from, to };
+              })
+            }
+          />
+        ) : viewMode === "month" ? (
           <FullCalendar
             ref={calendarRef as any}
             plugins={[timeGridPlugin, dayGridPlugin, interactionPlugin]}
-            initialView={initialView}
+            initialView={"dayGridMonth"}
             initialDate={initialDate}
             headerToolbar={{
               left: "prev,next today",
@@ -1253,12 +1636,7 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
             }}
             locale={deLocale}
             firstDay={1}
-            slotMinTime="09:00:00"
-            slotMaxTime="21:30:00"
             allDaySlot={false}
-            slotDuration="00:30:00"
-            snapDuration="00:30:00"
-            nowIndicator
             weekends
             height="auto"
             events={events}
@@ -1274,24 +1652,6 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
             selectMirror={true}
             unselectAuto={true}
             selectMinDistance={5}
-            select={(arg: DateSelectArg) => {
-              hideTip();
-              if (arg.view?.type !== "timeGridWeek") return;
-
-              const step = 30;
-              const start = roundToStep(arg.start, step);
-              const end = roundToStep(arg.end, step);
-
-              const startMs = start.getTime();
-              const endMs = end.getTime();
-              const durationMin = (endMs - startMs) / 60000;
-
-              const finalEndRaw =
-                !Number.isFinite(durationMin) || durationMin < 30 ? new Date(startMs + 60 * 60 * 1000) : end;
-              const finalEnd = roundToStep(finalEndRaw, step);
-
-              goToRequestNew(start, finalEnd, "timeGridWeek", start);
-            }}
             dateClick={(arg) => {
               hideTip();
               if (arg.view?.type !== "dayGridMonth") return;

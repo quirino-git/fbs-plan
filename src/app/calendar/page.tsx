@@ -829,8 +829,8 @@ function hideTip() {
   // -------------------------
   // LIST VIEW (Variante A: Zeitraster x Plätze)
   // -------------------------
-  const LIST_START_HOUR = 9;
-  const LIST_END_HOUR = 22;
+  const LIST_START_HOUR = 8.5;
+  const LIST_END_HOUR = 21;
   const SLOT_MIN = 30;
 
 
@@ -1347,24 +1347,78 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
   if (!sessionChecked) return null;
 
   return (
-    <div style={{ maxWidth: viewMode === "list" || viewMode === "dashboard" || viewMode === "mobile" ? "none" : 1200, width: "100%", margin: "24px auto", padding: 16 }}>
+    <div className="page-root" style={{ maxWidth: viewMode === "list" || viewMode === "dashboard" || viewMode === "mobile" ? "none" : 1200, width: "100%", margin: "24px auto", padding: 16 }}>
       <style jsx global>{`
         @media print {
-          @page { size: A4 landscape; margin: 8mm; }
+          @page { size: A4 landscape; margin: 4mm; }
 
-          html, body { background: #fff !important; }
-          body { color: #111 !important; }
-
-          .no-print { display: none !important; }
-          .print-wrap { overflow: visible !important; }
-
-          .print-grid {
-            width: 100% !important;
-            min-width: 0 !important;
-            gap: 6px !important;
+          html, body {
+            background: #fff !important;
+            color: #111 !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
 
-          .print-event { font-size: 10px !important; line-height: 1.1 !important; }
+          .no-print { display: none !important; }
+
+          .page-root {
+            margin: 0 !important;
+            padding: 0 !important;
+            max-width: none !important;
+            width: 100% !important;
+          }
+
+          .list-print-root {
+            padding: 0 !important;
+            margin: 0 !important;
+            background: #fff !important;
+            border: none !important;
+            box-shadow: none !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+
+          .print-wrap {
+            overflow: hidden !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+
+          .list-print-grid {
+            width: calc(100% - 4mm) !important;
+            max-width: calc(100% - 4mm) !important;
+            min-width: 0 !important;
+            margin: 0 auto !important;
+            gap: 3px !important;
+            --time-col-width: 46px !important;
+            --header-row-height: 20px !important;
+            --slot-row-height: 18px !important;
+            grid-template-columns: var(--time-col-width) repeat(var(--pitch-count), minmax(0, 1fr)) !important;
+            grid-template-rows: var(--header-row-height) repeat(var(--slot-count), var(--slot-row-height)) !important;
+            box-sizing: border-box !important;
+          }
+
+          .print-pitch-header {
+            font-size: 9px !important;
+            padding: 2px 4px !important;
+            border-radius: 6px !important;
+          }
+
+          .print-time-cell {
+            font-size: 9px !important;
+            padding: 1px 2px !important;
+            border-radius: 6px !important;
+          }
+
+          .print-event {
+            font-size: 8px !important;
+            line-height: 1.0 !important;
+            padding: 2px 3px !important;
+            border-radius: 6px !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            box-shadow: none !important;
+          }
 
           .print-booking-card {
             background: #fff !important;
@@ -1383,17 +1437,30 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
             break-inside: avoid;
             page-break-before: always;
             page-break-inside: avoid;
+            padding: 4mm 4mm 3mm 6mm !important;
+            margin: 0 !important;
+            min-height: 196mm !important;
+            background: #fff !important;
+            border: none !important;
+            box-shadow: none !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
           }
-          .print-day:first-of-type {
-            break-before: auto;
-            page-break-before: auto;
+          .print-day.print-day-first {
+            break-before: auto !important;
+            page-break-before: auto !important;
           }
           .print-day .day-header {
             break-after: avoid;
             page-break-after: avoid;
+            font-size: 12px !important;
+            margin-bottom: 4px !important;
+            padding-left: 6px !important;
           }
-        }
-      `}</style>
+        }`}</style>
 
       {/* Header */}
       <div
@@ -1479,6 +1546,7 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
       <div style={{ marginTop: 16 }}>
         {/* View Switcher */}
         <div
+          className="no-print"
           style={{
             display: "flex",
             justifyContent: "flex-end",
@@ -1784,8 +1852,8 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
             eventMouseLeave={() => hideTip()}
           />
         ) : (
-          <div className="card" style={{ padding: 16 }}>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+          <div className="card list-print-root" style={{ padding: 16 }}>
+            <div className="no-print" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
               <div>
                 <div style={{ opacity: 0.8, fontSize: 13, marginBottom: 6 }}>Von</div>
                 <input
@@ -1824,7 +1892,7 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
               </div>
             </div>
 
-            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
               {listDays.map((day) => {
                 const dayStart = new Date(day);
                 dayStart.setHours(0, 0, 0, 0);
@@ -1860,8 +1928,8 @@ for (const p of visiblePitchesForList) {
 }
 
                 return (
-                  <div key={day.toISOString()} className="card print-day" style={{ padding: 16 }}>
-                    <div className="day-header" style={{ fontWeight: 900, fontSize: 16, marginBottom: 10 }}>
+                  <div key={day.toISOString()} className={`card print-day ${day === listDays[0] ? "print-day-first" : ""}`} style={{ padding: 12, boxSizing: "border-box" }}>
+                    <div className="day-header" style={{ fontWeight: 900, fontSize: 16, marginBottom: 10, paddingLeft: 6 }}>
                       {day.toLocaleDateString("de-DE", {
                         weekday: "long",
                         day: "2-digit",
@@ -1870,16 +1938,22 @@ for (const p of visiblePitchesForList) {
                       })}
                     </div>
 
-                    <div className="print-wrap" style={{ overflowX: "auto", width: "100%" }}>
+                    <div className="print-wrap" style={{ overflowX: "auto", width: "100%", boxSizing: "border-box" }}>
                     <div
-                      className="print-grid"
+                      className="print-grid list-print-grid"
                       style={{
                         display: "grid",
+                        ["--pitch-count" as any]: visiblePitchesForList.length,
+                        ["--slot-count" as any]: listSlots.length,
+                        ["--time-col-width" as any]: "64px",
+                        ["--header-row-height" as any]: "30px",
+                        ["--slot-row-height" as any]: "26px",
                         minWidth: 64 + visiblePitchesForList.length * 90,
                         width: "max-content",
                         gridTemplateColumns: `64px repeat(${visiblePitchesForList.length}, 225px)`,
                         gridTemplateRows: `30px repeat(${listSlots.length}, 26px)`,
                         gap: 3,
+                        boxSizing: "border-box",
                       }}
                     >
                       {/* Header */}
@@ -1887,6 +1961,7 @@ for (const p of visiblePitchesForList) {
                       {visiblePitchesForList.map((p) => (
                         <div
                           key={p.id}
+                          className="print-pitch-header"
                           style={{
                             fontWeight: 800,
                             fontSize: 11,
@@ -1909,6 +1984,7 @@ for (const p of visiblePitchesForList) {
                       {listSlots.map((s) => (
                         <div
                           key={s.label}
+                          className="print-time-cell"
                           style={{
                             gridColumn: 1,
                             border: "1px solid rgba(255,255,255,0.08)",

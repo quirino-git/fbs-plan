@@ -50,6 +50,118 @@ function fmtTime(iso: string) {
   return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
+function shortenPitchNameForList(name: string) {
+  return String(name || "")
+    .replace(/Grossfeld/gi, "GF")
+    .replace(/Kompaktfeld/gi, "KF")
+    .replace(/Kunstrasen/gi, "Kunstrasen")
+    .replace(/Remiseplatz/gi, "Remise")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactText(text: string, maxLen = 34) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  return s.length > maxLen ? s.slice(0, maxLen - 1).trimEnd() + "…" : s;
+}
+
+function cleanIcsLikeText(raw: string) {
+  return String(raw || "")
+    .replace(/\[(?:BFV_[^\]]+|BFVTEAM_ID:[^\]]+|BFV_UID:[^\]]+)\]/gi, "")
+    .replace(/\bBFV_UID:[^\s,\]]+/gi, "")
+    .replace(/\bBFVTEAM_ID:[^\s,\]]+/gi, "")
+    .replace(/\r?\n[ \t]+/g, "")
+    .replace(/\\n/g, " ")
+    .replace(/\r?\n/g, " ")
+    .replace(/\\,/g, ",")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeTeamForCompare(raw: string) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/\(sg\)/gi, "")
+    .replace(/\bsg\b/gi, "")
+    .replace(/münchen/gi, "")
+    .replace(/munchen/gi, "")
+    .replace(/[^a-z0-9äöüß]+/gi, "");
+}
+
+function detectMatchType(raw: string) {
+  const compact = cleanIcsLikeText(raw)
+    .toLowerCase()
+    .replace(/\s+/g, "");
+
+  if (compact.includes("freundschaftsspiele")) return "Freundschaftsspiele";
+  if (compact.includes("kinderfestival")) return "Kinderfestival";
+  if (compact.includes("meisterschaften") || compact.includes("meisterschaft")) return "Meisterschaften";
+  if (compact.includes("pokale") || compact.includes("pokal")) return "Pokale";
+  return "";
+}
+
+function extractCompetitionFromIcs(raw: string) {
+  const cleaned = cleanIcsLikeText(raw);
+  if (!cleaned) return "";
+
+  const parts = cleaned
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 3) {
+    return parts.slice(2).join(", ").trim();
+  }
+  return "";
+}
+
+function extractOpponentForHomeGame(firstSegment: string, localHome: string) {
+  const segment = String(firstSegment || "").trim();
+  const home = String(localHome || "").trim();
+  if (!segment || !home) return "";
+
+  const targetNorm = normalizeTeamForCompare(home);
+
+  let matchEnd = -1;
+  for (let i = 1; i <= segment.length; i++) {
+    const prefix = segment.slice(0, i);
+    if (normalizeTeamForCompare(prefix) === targetNorm) {
+      matchEnd = i;
+    }
+  }
+
+  if (matchEnd >= 0) {
+    const rest = segment.slice(matchEnd).replace(/^[\s\-–:]+/, "").trim();
+    if (rest) return rest;
+  }
+
+  const split = segment.split(/\s*[–-]\s*/).map((x) => x.trim()).filter(Boolean);
+  if (split.length >= 2) {
+    return split.slice(1).join(" – ").trim();
+  }
+
+  return "";
+}
+
+function buildHomeListLabelFromIcs(b: any, teamById: Map<string, Team>) {
+  const localHome = String(b?.teams?.name || teamById.get(b?.team_id)?.name || "").trim();
+  if (!localHome) return null;
+
+  const raw = cleanIcsLikeText(String(b?.note || (b as any)?.tooltipText || (b as any)?.title || ""));
+  if (!raw) return null;
+
+  const firstSegment = raw.split(",")[0]?.trim() || "";
+  if (!firstSegment) return null;
+
+  const matchType = detectMatchType(raw);
+  const competition = extractCompetitionFromIcs(raw);
+
+  return {
+    main: firstSegment,
+    type: matchType,
+    competition,
+  };
+}
 
 function bookingLabelLikeDashboard(b: any) {
   const cleanup = (raw: string) =>
@@ -1763,11 +1875,11 @@ for (const p of visiblePitchesForList) {
                       className="print-grid"
                       style={{
                         display: "grid",
-                        minWidth: 78 + visiblePitchesForList.length * 260,
+                        minWidth: 64 + visiblePitchesForList.length * 90,
                         width: "max-content",
-                        gridTemplateColumns: `78px repeat(${visiblePitchesForList.length}, minmax(260px, 1fr))`,
-                        gridTemplateRows: `36px repeat(${listSlots.length}, 28px)`,
-                        gap: 4,
+                        gridTemplateColumns: `64px repeat(${visiblePitchesForList.length}, 225px)`,
+                        gridTemplateRows: `30px repeat(${listSlots.length}, 26px)`,
+                        gap: 3,
                       }}
                     >
                       {/* Header */}
@@ -1777,15 +1889,19 @@ for (const p of visiblePitchesForList) {
                           key={p.id}
                           style={{
                             fontWeight: 800,
-                            fontSize: 13,
+                            fontSize: 11,
                             opacity: 0.9,
                             border: "1px solid rgba(255,255,255,0.10)",
-                            borderRadius: 12,
-                            padding: "8px 10px",
+                            borderRadius: 10,
+                            padding: "6px 8px",
                             background: "rgba(255,255,255,0.04)",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
                           }}
+                          title={p.name}
                         >
-                          {p.name}
+                          {shortenPitchNameForList(p.name)}
                         </div>
                       ))}
 
@@ -1796,9 +1912,9 @@ for (const p of visiblePitchesForList) {
                           style={{
                             gridColumn: 1,
                             border: "1px solid rgba(255,255,255,0.08)",
-                            borderRadius: 12,
-                            padding: "6px 8px",
-                            fontSize: 14,
+                            borderRadius: 10,
+                            padding: "4px 6px",
+                            fontSize: 11,
                             opacity: 0.85,
                             background: "rgba(255,255,255,0.03)",
                             display: "flex",
@@ -1843,17 +1959,28 @@ for (const p of visiblePitchesForList) {
                         const be = clamp(beRaw, minT, maxT);
                         if (be <= bs) return null;
 
-                        const startIdx = Math.max(0, Math.min(listSlots.length - 1, slotIndex(bs)));
-                        const endIdx = Math.max(startIdx + 1, Math.min(listSlots.length, slotIndex(be) + 1));
+                        const startIdx = Math.max(
+                          0,
+                          Math.min(listSlots.length - 1, Math.floor(minutesSinceStart(bs) / SLOT_MIN))
+                        );
+                        // Ende exklusiv behandeln:
+                        // Ein Spiel 14:00–15:00 belegt 14:00–14:30 und 14:30–15:00,
+                        // aber NICHT schon den Slot ab 15:00.
+                        const endIdx = Math.max(
+                          startIdx + 1,
+                          Math.min(listSlots.length, Math.ceil(minutesSinceStart(be) / SLOT_MIN))
+                        );
 
                         const status = String(b.status || "").toUpperCase();
                         const bg = status === "APPROVED" ? "rgba(40, 160, 80, 0.25)" : "rgba(210, 160, 0, 0.20)";
                         const border =
                           status === "APPROVED" ? "rgba(40, 160, 80, 0.55)" : "rgba(210, 160, 0, 0.45)";
 
-                        const pName = b.pitches?.name ?? pitchById.get(b.pitch_id)?.name ?? "";
-                        const tName = bookingLabelLikeDashboard(b);
-                        const title = `${pName}`.trim();
+                        const parsedHome = buildHomeListLabelFromIcs(b, teamById);
+                        const rawIcs = String(b?.note || (b as any)?.tooltipText || (b as any)?.title || "");
+                        const tName = parsedHome?.main || bookingLabelLikeDashboard(b);
+                        const matchType = parsedHome?.type || detectMatchType(rawIcs);
+                        const competition = parsedHome?.competition || extractCompetitionFromIcs(rawIcs);
                         const timeLabel = `${fmtTime(b.start_at)}–${fmtTime(b.end_at)}`;
 
 
@@ -1872,28 +1999,56 @@ return (
                           <div
                             key={b.id}
                             className="print-event"
-                            title={`${timeLabel}\n${tName}\n${title}`}
+                            title={`${timeLabel}\n${tName}${matchType ? `\n${matchType}` : ""}${competition ? `\n${competition}` : ""}`}
                             style={{
                               gridColumn: 2 + pIndex,
                               gridRowStart: 2 + startIdx,
                               gridRowEnd: 2 + endIdx,
                               zIndex: 3,
-                              borderRadius: 12,
+                              borderRadius: 10,
                               border: `1px solid ${border}`,
                               background: bg,
-                              padding: "8px 10px",
+                              padding: "4px 6px",
                               width: w,
                               marginLeft: ml,
-                              overflow: "hidden",
+                              overflowX: "hidden",
+                              overflowY: "visible",
                               display: "flex",
                               flexDirection: "column",
                               justifyContent: "center",
-                              fontSize: 13,
+                              gap: 2,
+                              fontSize: 11,
                             }}
                           >
-                            <div style={{ fontWeight: 900, marginBottom: 2 }}>{tName}</div>
-                            <div style={{ opacity: 0.9, fontSize: 12 }}>{timeLabel}</div>
-                            {title && <div style={{ opacity: 0.85, fontSize: 12, marginTop: 4 }}>{title}</div>}
+                            <div
+                              style={{
+                                fontWeight: 800,
+                                marginBottom: 2,
+                                whiteSpace: "normal",
+                                overflow: "visible",
+                                textOverflow: "clip",
+                                wordBreak: "break-word",
+                                lineHeight: 1.15,
+                              }}
+                            >
+                              {tName}
+                            </div>
+                            <div style={{ opacity: 0.95, fontSize: 10, marginBottom: 2 }}>{timeLabel}</div>
+                            {(matchType || competition) ? (
+                              <div
+                                style={{
+                                  opacity: 0.86,
+                                  fontSize: 10,
+                                  lineHeight: 1.15,
+                                  whiteSpace: "normal",
+                                  overflow: "visible",
+                                  textOverflow: "clip",
+                                  wordBreak: "break-word",
+                                }}
+                              >
+                                {[matchType, competition].filter(Boolean).join(" | ")}
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}

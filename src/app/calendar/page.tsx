@@ -67,6 +67,7 @@ function compactText(text: string, maxLen = 34) {
 
 function cleanIcsLikeText(raw: string) {
   return String(raw || "")
+    .replace(/\[BFV\]\s*/gi, "")
     .replace(/\[(?:BFV_[^\]]+|BFVTEAM_ID:[^\]]+|BFV_UID:[^\]]+)\]/gi, "")
     .replace(/\bBFV_UID:[^\s,\]]+/gi, "")
     .replace(/\bBFVTEAM_ID:[^\s,\]]+/gi, "")
@@ -831,7 +832,7 @@ function hideTip() {
   // -------------------------
   const LIST_START_HOUR = 8.5;
   const LIST_END_HOUR = 21;
-  const SLOT_MIN = 30;
+  const SLOT_MIN = 15;
 
 
 // Overlap-Layout: doppelte Buchungen nebeneinander darstellen (pro Platz / Tag)
@@ -919,7 +920,8 @@ function computeOverlapLayout(boxes: OverlapBox[]): Map<string, OverlapPos> {
     for (let m = startMin; m < endMin; m += SLOT_MIN) {
       const hh = String(Math.floor(m / 60)).padStart(2, "0");
       const mm = String(m % 60).padStart(2, "0");
-      slots.push({ label: `${hh}:${mm}`, minutes: m });
+      const showLabel = m % 30 === 0;
+      slots.push({ label: showLabel ? `${hh}:${mm}` : "", minutes: m });
     }
     return slots;
   }
@@ -1392,7 +1394,7 @@ const isAdmin = useMemo(() => (profile?.role || "TRAINER").toUpperCase() === "AD
             gap: 3px !important;
             --time-col-width: 46px !important;
             --header-row-height: 20px !important;
-            --slot-row-height: 18px !important;
+            --slot-row-height: 9px !important;
             grid-template-columns: var(--time-col-width) repeat(var(--pitch-count), minmax(0, 1fr)) !important;
             grid-template-rows: var(--header-row-height) repeat(var(--slot-count), var(--slot-row-height)) !important;
             box-sizing: border-box !important;
@@ -1947,11 +1949,11 @@ for (const p of visiblePitchesForList) {
                         ["--slot-count" as any]: listSlots.length,
                         ["--time-col-width" as any]: "64px",
                         ["--header-row-height" as any]: "30px",
-                        ["--slot-row-height" as any]: "26px",
+                        ["--slot-row-height" as any]: "14px",
                         minWidth: 64 + visiblePitchesForList.length * 90,
                         width: "max-content",
                         gridTemplateColumns: `64px repeat(${visiblePitchesForList.length}, 225px)`,
-                        gridTemplateRows: `30px repeat(${listSlots.length}, 26px)`,
+                        gridTemplateRows: `30px repeat(${listSlots.length}, 14px)`,
                         gap: 3,
                         boxSizing: "border-box",
                       }}
@@ -1983,14 +1985,14 @@ for (const p of visiblePitchesForList) {
                       {/* Time column */}
                       {listSlots.map((s) => (
                         <div
-                          key={s.label}
+                          key={s.minutes}
                           className="print-time-cell"
                           style={{
                             gridColumn: 1,
                             border: "1px solid rgba(255,255,255,0.08)",
                             borderRadius: 10,
-                            padding: "4px 6px",
-                            fontSize: 11,
+                            padding: "2px 4px",
+                            fontSize: 10,
                             opacity: 0.85,
                             background: "rgba(255,255,255,0.03)",
                             display: "flex",
@@ -2006,7 +2008,7 @@ for (const p of visiblePitchesForList) {
                       {visiblePitchesForList.map((p, pi) =>
                         listSlots.map((s, si) => (
                           <div
-                            key={`${p.id}-${s.label}`}
+                            key={`${p.id}-${s.minutes}`}
                             style={{
                               gridColumn: 2 + pi,
                               gridRow: 2 + si,
@@ -2052,11 +2054,12 @@ for (const p of visiblePitchesForList) {
                         const border =
                           status === "APPROVED" ? "rgba(40, 160, 80, 0.55)" : "rgba(210, 160, 0, 0.45)";
 
-                        const parsedHome = buildHomeListLabelFromIcs(b, teamById);
+                        const dashboardLabel = cleanIcsLikeText(bookingLabelLikeDashboard(b));
                         const rawIcs = String(b?.note || (b as any)?.tooltipText || (b as any)?.title || "");
-                        const tName = parsedHome?.main || bookingLabelLikeDashboard(b);
-                        const matchType = parsedHome?.type || detectMatchType(rawIcs);
-                        const competition = parsedHome?.competition || extractCompetitionFromIcs(rawIcs);
+                        const metaSource = cleanIcsLikeText(rawIcs || dashboardLabel);
+                        const tName = dashboardLabel.split(",")[0]?.trim() || dashboardLabel || "—";
+                        const matchType = detectMatchType(metaSource);
+                        const competition = extractCompetitionFromIcs(metaSource);
                         const timeLabel = `${fmtTime(b.start_at)}–${fmtTime(b.end_at)}`;
 
 
@@ -2088,38 +2091,40 @@ return (
                               width: w,
                               marginLeft: ml,
                               overflowX: "hidden",
-                              overflowY: "visible",
+                              overflowY: "hidden",
                               display: "flex",
                               flexDirection: "column",
                               justifyContent: "center",
-                              gap: 2,
+                              gap: 1,
                               fontSize: 11,
                             }}
                           >
                             <div
                               style={{
                                 fontWeight: 800,
-                                marginBottom: 2,
+                                marginBottom: 1,
                                 whiteSpace: "normal",
-                                overflow: "visible",
+                                overflow: "hidden",
                                 textOverflow: "clip",
                                 wordBreak: "break-word",
-                                lineHeight: 1.15,
+                                lineHeight: 1.12,
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical" as const,
                               }}
                             >
                               {tName}
                             </div>
-                            <div style={{ opacity: 0.95, fontSize: 10, marginBottom: 2 }}>{timeLabel}</div>
+                            <div style={{ opacity: 0.95, fontSize: 10, marginBottom: 1, whiteSpace: "nowrap" }}>{timeLabel}</div>
                             {(matchType || competition) ? (
                               <div
                                 style={{
                                   opacity: 0.86,
                                   fontSize: 10,
-                                  lineHeight: 1.15,
-                                  whiteSpace: "normal",
-                                  overflow: "visible",
-                                  textOverflow: "clip",
-                                  wordBreak: "break-word",
+                                  lineHeight: 1.1,
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
                                 }}
                               >
                                 {[matchType, competition].filter(Boolean).join(" | ")}
